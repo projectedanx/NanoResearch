@@ -300,6 +300,10 @@ class _LaTeXAssemblerMixin(
             r'Now I (?:will|can|shall) (?:write|compose|draft).*',
             r'Here is the (?:completed?|final|written) (?:section|text|content).*:?\s*$',
             r'`[0-9a-f]{20,}`',
+            r'^Write the \w[\w ]{0,40}\.\s*$',
+            r'^Given the research context.*$',
+            r'^Use the information you have to write.*$',
+            r"^I'(?:ll|will) proceed with writing.*$",
         ]
         for pat in _LLM_ARTIFACT_PATTERNS:
             text = re.sub(pat, '', text, flags=re.IGNORECASE | re.MULTILINE)

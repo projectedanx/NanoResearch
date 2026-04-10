@@ -212,10 +212,11 @@ class _WritingAgentMixin:
                               "illustration", "counterfactual", "demo", "teaser",
                               "intuition", "sample"),
                 "sec:experiments": ("result", "comparison", "performance", "main", "latency",
-                                    "tradeoff", "trade_off", "efficiency", "scalab"),
+                                    "tradeoff", "trade_off", "efficiency", "scalab",
+                                    "ablation", "analysis", "error"),
                 "sec:method": ("architecture", "framework", "pipeline", "overview", "model",
                                "diagram", "workflow"),
-                "sec:conclusion": ("ablation", "analysis", "error", "contradiction"),
+                "sec:conclusion": ("contradiction",),
             }
             for fk in remaining:
                 target_label = "sec:experiments"
@@ -502,6 +503,12 @@ class _WritingAgentMixin:
             f"=== END FIGURES ==="
             f"{table_injection}"
             f"{conclusion_binding}"
+            "\n\n=== LATEX CROSS-REFERENCE RULE ===\n"
+            "Do NOT use \\ref{sec:...} to reference subsections. "
+            "Use natural language instead (e.g., 'in the ablation study' rather than "
+            "'in Section~\\ref{sec:ablation}'). "
+            "Only use \\ref{fig:...} for figures and \\ref{tab:...} for tables.\n"
+            "=== END RULE ==="
         )
 
         # P0-2: If the QUALITY gate sent us back via PIVOT, inject the
