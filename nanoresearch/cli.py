@@ -39,6 +39,15 @@ from nanoresearch.config import ExecutionProfile, ResearchConfig
 from nanoresearch.pipeline.orchestrator import PipelineOrchestrator
 from nanoresearch.pipeline.unified_orchestrator import UnifiedPipelineOrchestrator
 from nanoresearch.pipeline.workspace import Workspace
+from nanoresearch.profile import (
+    ARCHETYPE_SEEDS,
+    build_profile_seed,
+    get_profile_json_path,
+    get_profile_markdown_path,
+    load_user_profile,
+    render_profile_markdown,
+    save_user_profile,
+)
 from nanoresearch.schemas.manifest import PaperMode, PipelineMode, PipelineStage
 
 app = typer.Typer(
@@ -46,6 +55,8 @@ app = typer.Typer(
     help="Minimal AI-driven research engine: idea → paper draft",
     add_completion=False,
 )
+profile_app = typer.Typer(help="Manage NanoResearch user persona/profile.")
+app.add_typer(profile_app, name="profile")
 console = Console()
 
 _DEFAULT_ROOT = Path.home() / ".nanoresearch" / "workspace" / "research"
@@ -79,6 +90,7 @@ def _ensure_nanoresearch_home() -> None:
         "cache/data",
         "memory",
         "skills",
+        "profile",
     ]
 
     nanoresearch_home.mkdir(parents=True, exist_ok=True)
@@ -238,6 +250,123 @@ def _cli_progress(stage: str, status: str, message: str) -> None:
         "failed": "[red]ERR[/red]",
     }
     console.print(f"  {icons.get(status, '   ')} {message}")
+
+
+def _prompt_with_default(label: str, default: str) -> str:
+    return typer.prompt(label, default=default, show_default=bool(default)).strip()
+
+
+def _select_archetype() -> str:
+    console.print(Panel(
+        "\n".join(
+            f"{idx}. {name}" for idx, name in enumerate(ARCHETYPE_SEEDS.keys(), start=1)
+        ),
+        title="Select Persona Archetype",
+        border_style="magenta",
+    ))
+    names = list(ARCHETYPE_SEEDS.keys())
+    choice = typer.prompt("Choose archetype number", default="4").strip()
+    try:
+        selected = names[max(0, min(len(names) - 1, int(choice) - 1))]
+    except ValueError:
+        selected = names[3]
+    return selected
+
+
+def _run_profile_interview(seed_name: str, existing: dict | None = None) -> dict:
+    profile = build_profile_seed(seed_name)
+    if existing:
+        profile.update(existing)
+        profile["archetype_seed"] = seed_name
+
+    research = profile["research_profile"]
+    resource = profile["resource_profile"]
+    writing = profile["writing_profile"]
+    publication = profile["publication_profile"]
+    interaction = profile["interaction_profile"]
+
+    console.print("[bold cyan]Nano persona interview[/bold cyan]")
+    research["domain"] = _prompt_with_default("Research direction", research["domain"])
+    research["method_preference"] = _prompt_with_default("Method preference", research["method_preference"])
+    research["risk_preference"] = _prompt_with_default("Risk preference", research["risk_preference"])
+    research["baseline_ablation_strictness"] = _prompt_with_default(
+        "Baseline / ablation strictness", research["baseline_ablation_strictness"]
+    )
+
+    resource["gpu_budget"] = _prompt_with_default("GPU budget", resource["gpu_budget"])
+    resource["wall_clock_budget"] = _prompt_with_default("Wall-clock budget", resource["wall_clock_budget"])
+    resource["feasibility_bias"] = _prompt_with_default("Feasibility / reproducibility preference", resource["feasibility_bias"])
+
+    writing["tone"] = _prompt_with_default("Writing tone", writing["tone"])
+    writing["claim_strength"] = _prompt_with_default("Claim strength", writing["claim_strength"])
+    writing["section_organization"] = _prompt_with_default("Section organization", writing["section_organization"])
+
+    publication["venue_style"] = _prompt_with_default("Venue style", publication["venue_style"])
+    publication["latex_template_preference"] = _prompt_with_default("LaTeX/template preference", publication["latex_template_preference"])
+    publication["figure_style"] = _prompt_with_default("Figure style", publication["figure_style"])
+    publication["caption_style"] = _prompt_with_default("Caption style", publication["caption_style"])
+
+    interaction["priority_feedback"] = _prompt_with_default("Most important feedback", interaction["priority_feedback"])
+    interaction["unacceptable_errors"] = _prompt_with_default("Most unacceptable mistake", interaction["unacceptable_errors"])
+
+    return profile
+
+
+def _save_profile_with_confirmation(profile: dict) -> None:
+    console.print(Panel(render_profile_markdown(profile), title="Persona Summary", border_style="green"))
+    if not typer.confirm("Save this profile?", default=True):
+        console.print("[yellow]Profile creation cancelled.[/yellow]")
+        raise typer.Exit(1)
+    save_user_profile(profile)
+    console.print(f"[green]Profile saved.[/green] JSON: {get_profile_json_path()}  MD: {get_profile_markdown_path()}")
+
+
+@app.command("init")
+def init_profile() -> None:
+    """Create or refresh the long-term NanoResearch user profile."""
+    _ensure_nanoresearch_home()
+
+    existing = load_user_profile()
+    if existing is not None:
+        console.print(Panel(render_profile_markdown(existing), title="Existing profile found", border_style="yellow"))
+        if not typer.confirm("Refresh this profile now?", default=False):
+            console.print("[cyan]Keeping current profile unchanged.[/cyan]")
+            return
+
+    archetype = _select_archetype()
+    profile = _run_profile_interview(archetype, existing=existing)
+    _save_profile_with_confirmation(profile)
+
+
+@profile_app.command("show")
+def profile_show() -> None:
+    """Show the current user profile."""
+    profile = load_user_profile()
+    if profile is None:
+        console.print("[yellow]No profile found. Run `nanoresearch init` first.[/yellow]")
+        raise typer.Exit(1)
+    console.print(Panel(render_profile_markdown(profile), title="NanoResearch Profile", border_style="blue"))
+
+
+@profile_app.command("refresh")
+def profile_refresh() -> None:
+    """Refresh the current user profile via the interview flow."""
+    init_profile()
+
+
+@profile_app.command("export")
+def profile_export(
+    format: str = typer.Option("json", "--format", "-f", help="Export format: json or markdown"),
+) -> None:
+    """Print the current profile artifact path for downstream use."""
+    profile = load_user_profile()
+    if profile is None:
+        console.print("[yellow]No profile found. Run `nanoresearch init` first.[/yellow]")
+        raise typer.Exit(1)
+    if format.lower() in {"md", "markdown"}:
+        console.print(str(get_profile_markdown_path()))
+        return
+    console.print(str(get_profile_json_path()))
 
 
 @app.command()

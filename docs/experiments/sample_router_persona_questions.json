@@ -1,0 +1,24 @@
+[
+  {
+    "question_id": "pilot_nlp_biomed_qa",
+    "domain": "NLP",
+    "difficulty": "incremental_innovation",
+    "background": "Biomedical QA systems already perform well on PubMedQA, but lightweight improvements that preserve reproducibility and clean ablations remain valuable.",
+    "problem_statement": "Design a new but practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.",
+    "baselines": ["BioBERT", "PubMedBERT", "instruction-tuned biomedical QA baseline"],
+    "datasets": ["PubMedQA"],
+    "user_requirements": "Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.",
+    "extra_context": "Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines."
+  },
+  {
+    "question_id": "pilot_multimodal_efficiency",
+    "domain": "Multimodal",
+    "difficulty": "nontrivial_recomposition",
+    "background": "Compact multimodal systems often trade off reasoning quality against latency and systems complexity, especially when evaluated under strict deployment budgets.",
+    "problem_statement": "Propose a systems-aware multimodal method that improves benchmark quality without introducing an impractical training or serving stack.",
+    "baselines": ["compact VLM baseline", "late-fusion multimodal baseline"],
+    "datasets": ["MMMU", "ScienceQA"],
+    "user_requirements": "Produce a novel idea, an executable plan, and a benchmarkable implementation path. Avoid overly fragile or heavy multi-stage designs.",
+    "extra_context": "Reward methods with clear component interfaces, fair comparisons, and realistic implementation scope."
+  }
+]

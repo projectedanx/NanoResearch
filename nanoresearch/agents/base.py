@@ -17,6 +17,7 @@ from nanoresearch.pipeline.workspace import Workspace
 from nanoresearch.schemas.manifest import PipelineStage
 from nanoresearch.evolution.memory import MemoryScope, MemoryStore, MemoryType
 from nanoresearch.evolution.memory_analyzer import MemoryEvolutionAnalyzer
+from nanoresearch.profile import load_user_profile, render_profile_context
 from nanoresearch.skills import UnifiedSkillMatcher
 
 # Import all free functions from the helpers module so they remain accessible
@@ -66,6 +67,7 @@ class BaseResearchAgent(ABC):
             retrieval_top_k=getattr(config, "skill_retrieval_top_k", 5),
             autorun_policy=getattr(config, "script_skill_autorun_policy", "safe_only"),
         )
+        self._user_profile = load_user_profile()
 
     def _remember_mutation_snapshot_entry(self, entry: dict[str, Any] | None) -> None:
         self._last_mutation_snapshot_entry = dict(entry) if isinstance(entry, dict) else None
@@ -96,6 +98,10 @@ class BaseResearchAgent(ABC):
         payload: dict[str, Any] = {"task_type": task_type, "topic": topic, "tags": tags}
         try:
             project_key = self._project_key(topic)
+            profile_context = render_profile_context(task_type, self._user_profile)
+            if profile_context:
+                blocks.append(profile_context)
+                payload["profile_context"] = profile_context
             if getattr(self.config, "memory_enabled", True) and getattr(self.config, "memory_evolution_enabled", True):
                 research_conditions: dict[str, Any] = {
                     "paper_mode": self.workspace.manifest.paper_mode.value,
