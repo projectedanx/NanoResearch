@@ -113,6 +113,151 @@ from nanoresearch.agents.ideation_hypothesis import _IdeationHypothesisMixin  # 
 class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearchAgent):
     stage = PipelineStage.IDEATION
 
+    @staticmethod
+    def _normalize_string_list_field(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+
+        normalized: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                text = item.strip()
+            elif isinstance(item, dict):
+                text = str(
+                    item.get("theme")
+                    or item.get("challenge")
+                    or item.get("direction")
+                    or item.get("name")
+                    or item.get("title")
+                    or item.get("description")
+                    or ""
+                ).strip()
+                if not text:
+                    text = str(item).strip()
+            else:
+                text = str(item).strip() if item is not None else ""
+            if text:
+                normalized.append(text)
+        return normalized
+
+    @staticmethod
+    def _extract_topic_field(topic: str, field_name: str) -> str:
+        prefix = f"{field_name}:"
+        for line in (topic or "").splitlines():
+            if line.startswith(prefix):
+                return line.split(":", 1)[1].strip()
+        return ""
+
+    @classmethod
+    def _extract_topic_list_field(cls, topic: str, field_name: str) -> list[str]:
+        raw = cls._extract_topic_field(topic, field_name)
+        return [item.strip() for item in raw.split(";") if item.strip()]
+
+    async def _retrieve_baseline_evidence_openalex(
+        self,
+        topic: str,
+    ) -> tuple[list[PaperReference], EvidenceBundle, list[str]]:
+        """Lightweight baseline retrieval for eval-fast mode.
+
+        Full literature search stays disabled, but we still try to retrieve a
+        few OpenAlex papers tied to the declared baselines/datasets so planning
+        can anchor baseline numbers to recent/public evidence.
+        """
+        search_oa = await _get_oa_search()
+        if not search_oa:
+            return [], EvidenceBundle(coverage_warnings=["OpenAlex unavailable in eval-fast mode"]), []
+
+        baselines = self._extract_topic_list_field(topic, "Known Baselines")
+        datasets = self._extract_topic_list_field(topic, "Evaluation Datasets")
+        domain = self._extract_topic_field(topic, "Research Domain")
+        problem_statement = self._extract_topic_field(topic, "Problem Statement")
+
+        queries: list[str] = []
+        all_papers: dict[str, dict[str, Any]] = {}
+
+        for baseline in baselines[:6]:
+            exact_query = f'"{baseline}"'
+            if datasets:
+                exact_query = f'{exact_query} {datasets[0]}'
+            queries.append(exact_query)
+            if domain:
+                queries.append(f"{baseline} {domain}")
+
+        if datasets:
+            generic_candidates = [
+                f"{datasets[0]} baseline {domain}".strip(),
+                f"{datasets[0]} state of the art".strip(),
+                f"{datasets[0]} benchmark".strip(),
+            ]
+            if "qa" in datasets[0].lower() or "question answering" in problem_statement.lower():
+                generic_candidates.append(f"{datasets[0]} question answering".strip())
+            for generic in generic_candidates:
+                if generic and generic not in queries:
+                    queries.append(generic)
+        if problem_statement and datasets:
+            task_hint = f"{datasets[0]} {problem_statement[:80]}".strip()
+            if task_hint and task_hint not in queries:
+                queries.append(task_hint)
+
+        for query in queries[:10]:
+            try:
+                oa_results = await search_oa(query, max_results=5)
+            except Exception as exc:
+                logger.warning("[%s] OpenAlex baseline retrieval failed for '%s': %s", self.stage.value, query, exc)
+                continue
+            for paper in oa_results:
+                key = self._dedup_key(paper)
+                if key and key not in all_papers:
+                    all_papers[key] = paper
+
+        ranked = list(all_papers.values())
+        ranked.sort(
+            key=lambda paper: (
+                int(paper.get("year") or 0),
+                int(paper.get("citation_count") or 0),
+            ),
+            reverse=True,
+        )
+        ranked = ranked[:12]
+
+        evidence = await self._extract_evidence(ranked) if ranked else EvidenceBundle()
+        coverage_warnings = list(evidence.coverage_warnings)
+        if ranked and not evidence.extracted_metrics:
+            coverage_warnings.append(
+                "OpenAlex baseline retrieval found papers, but no explicit quantitative baseline metrics were extracted from abstracts."
+            )
+        if not ranked:
+            coverage_warnings.append("OpenAlex baseline retrieval found no candidate papers for the declared baselines.")
+        evidence = EvidenceBundle(
+            extracted_metrics=evidence.extracted_metrics,
+            extraction_notes=evidence.extraction_notes,
+            coverage_warnings=coverage_warnings,
+        )
+
+        references: list[PaperReference] = []
+        for paper in ranked:
+            try:
+                references.append(
+                    PaperReference(
+                        paper_id=str(
+                            paper.get("paper_id")
+                            or paper.get("openalex_id")
+                            or paper.get("arxiv_id")
+                            or ""
+                        ),
+                        title=paper.get("title", ""),
+                        authors=[str(author) for author in (paper.get("authors") or [])],
+                        year=paper.get("year"),
+                        abstract=paper.get("abstract", ""),
+                        venue=paper.get("venue", ""),
+                        citation_count=int(paper.get("citation_count", 0) or 0),
+                        url=paper.get("url", ""),
+                    )
+                )
+            except Exception as exc:
+                logger.warning("Skipping malformed OpenAlex baseline paper: %s", exc)
+        return references, evidence, queries
+
     async def run(self, **inputs: Any) -> dict[str, Any]:
         topic: str = inputs.get("topic", "")
         if not topic:
@@ -132,6 +277,11 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
                 retry_error,
                 tags=[topic, "retry", self.workspace.manifest.paper_mode.value],
             )
+
+        if getattr(self.config, "ideation_disable_retrieval", False):
+            self.log("Eval-fast mode: skipping full literature retrieval, but keeping lightweight OpenAlex baseline retrieval")
+            output = await self._run_without_retrieval(topic, adaptive_context=adaptive_context)
+            return self._persist_ideation_output(topic, output)
 
         # Check for cached search results (from a previous failed attempt)
         cache_path = self.workspace.path / "logs" / "ideation_search_cache.json"
@@ -266,7 +416,9 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
                     self.stage.value, len(reference_repos))
         output.reference_repos = reference_repos
 
-        # Save output
+        return self._persist_ideation_output(topic, output)
+
+    def _persist_ideation_output(self, topic: str, output: IdeationOutput) -> dict[str, Any]:
         output_path = self.workspace.write_json(
             "papers/ideation_output.json",
             output.model_dump(mode="json"),
@@ -301,6 +453,92 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
             source="ideation_output",
         )
         return output.model_dump(mode="json")
+
+    async def _run_without_retrieval(self, topic: str, adaptive_context: str = "") -> IdeationOutput:
+        baseline_papers, baseline_evidence, baseline_queries = await self._retrieve_baseline_evidence_openalex(topic)
+        adaptive_prefix = f"{adaptive_context}\n\n" if adaptive_context else ""
+        prompt = f"""{adaptive_prefix}Research Topic:
+{topic}
+
+You are running in evaluation mode. Full literature review and GitHub retrieval are disabled.
+Use the structured task context above to produce a compact ideation result for downstream planning.
+If lightweight baseline evidence was separately retrieved, treat it only as baseline context rather than a full literature survey.
+
+Return valid JSON with:
+- survey_summary: short literature-free framing of the task and constraints
+- gaps: array with 2-4 items, each containing gap_id, description, supporting_refs, severity, quantitative_evidence, future_work_mention
+- hypotheses: array with 2-4 items, each containing hypothesis_id, statement, gap_refs, novelty_justification, feasibility_notes, closest_existing_work
+- selected_hypothesis: one hypothesis_id from the list
+- rationale: short explanation for the selection
+- theme_clusters: optional array
+- key_challenges: optional array
+- future_directions: optional array
+
+Rules:
+- supporting_refs must be an empty list
+- quantitative_evidence and future_work_mention must be empty strings unless directly implied by the topic text
+- closest_existing_work may mention baselines named in the topic context
+- Do not invent papers, URLs, metrics, or citations
+- Keep the proposed ideas lightweight and reproducible when the task context asks for that
+
+Return JSON only."""
+        try:
+            result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, prompt)
+        except Exception as exc:
+            logger.warning("[%s] No-retrieval ideation generation failed: %s", self.stage.value, exc)
+            result = {}
+
+        if not isinstance(result, dict):
+            result = {}
+
+        hypotheses = result.get("hypotheses") if isinstance(result.get("hypotheses"), list) else []
+        selected_hypothesis = str(result.get("selected_hypothesis") or "").strip()
+        if not selected_hypothesis and hypotheses and isinstance(hypotheses[0], dict):
+            selected_hypothesis = str(hypotheses[0].get("hypothesis_id") or "HYP-001")
+
+        fallback = {
+            "topic": topic,
+            "search_queries": baseline_queries,
+            "papers": [paper.model_dump(mode="json") for paper in baseline_papers],
+            "survey_summary": str(
+                result.get("survey_summary")
+                or (
+                    "Evaluation-mode ideation generated from manifest context with lightweight OpenAlex baseline retrieval."
+                    if baseline_papers
+                    else "Evaluation-mode ideation generated from manifest context without external retrieval."
+                )
+            ),
+            "gaps": result.get("gaps") if isinstance(result.get("gaps"), list) else [
+                {
+                    "gap_id": "GAP-001",
+                    "description": "Need a lightweight, reproducible method tailored to the stated task constraints.",
+                    "supporting_refs": [],
+                    "severity": "high",
+                    "quantitative_evidence": "",
+                    "future_work_mention": "",
+                }
+            ],
+            "hypotheses": hypotheses or [
+                {
+                    "hypothesis_id": "HYP-001",
+                    "statement": "A lightweight, ablatable method aligned with the provided baselines can improve the target task under the stated resource budget.",
+                    "gap_refs": ["GAP-001"],
+                    "novelty_justification": "Derived from the task-specific constraints rather than external literature search.",
+                    "feasibility_notes": "Designed for evaluation mode where downstream planning and implementation matter more than open-ended literature coverage.",
+                    "closest_existing_work": "",
+                }
+            ],
+            "selected_hypothesis": selected_hypothesis or "HYP-001",
+            "rationale": str(result.get("rationale") or "Chosen for alignment with the explicit task constraints and downstream executability."),
+            "evidence": baseline_evidence.model_dump(mode="json"),
+            "reference_repos": [],
+            "must_cites": [],
+            "must_cite_matches": [],
+            "theme_clusters": self._normalize_string_list_field(result.get("theme_clusters")),
+            "key_challenges": self._normalize_string_list_field(result.get("key_challenges")),
+            "future_directions": self._normalize_string_list_field(result.get("future_directions")),
+        }
+        return IdeationOutput.model_validate(fallback)
 
     async def _generate_queries(self, topic: str, adaptive_context: str = "") -> list[str]:
         adaptive_prefix = f"{adaptive_context}\n\n" if adaptive_context else ""

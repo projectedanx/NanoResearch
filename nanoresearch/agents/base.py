@@ -17,7 +17,11 @@ from nanoresearch.pipeline.workspace import Workspace
 from nanoresearch.schemas.manifest import PipelineStage
 from nanoresearch.evolution.memory import MemoryScope, MemoryStore, MemoryType
 from nanoresearch.evolution.memory_analyzer import MemoryEvolutionAnalyzer
-from nanoresearch.profile import load_user_profile, render_profile_context
+from nanoresearch.profile import (
+    load_user_profile,
+    render_profile_context,
+)
+from nanoresearch.router_policy import RouterPolicyRunner
 from nanoresearch.skills import UnifiedSkillMatcher
 
 # Import all free functions from the helpers module so they remain accessible
@@ -67,6 +71,7 @@ class BaseResearchAgent(ABC):
             retrieval_top_k=getattr(config, "skill_retrieval_top_k", 5),
             autorun_policy=getattr(config, "script_skill_autorun_policy", "safe_only"),
         )
+        self._router_policy = RouterPolicyRunner(config)
         self._user_profile = load_user_profile()
 
     def _remember_mutation_snapshot_entry(self, entry: dict[str, Any] | None) -> None:
@@ -81,6 +86,298 @@ class BaseResearchAgent(ABC):
         raw = (topic or self.workspace.manifest.topic or self.workspace.manifest.session_id).strip().lower()
         slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
         return slug or self.workspace.manifest.session_id
+
+    @staticmethod
+    def _compact_router_text(value: Any, limit: int = 600) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + " ..."
+
+    @staticmethod
+    def _router_subsystem(task_type: str) -> str:
+        task_type = (task_type or "").strip().lower()
+        if task_type in {"ideation", "planning", "literature"}:
+            return "method_generation"
+        if task_type in {"experiment", "coding", "review"}:
+            return "code_implementation"
+        if task_type == "writing":
+            return "paper_writing"
+        return "method_generation"
+
+    def _build_sdpo_router_blocks(
+        self,
+        task_type: str,
+        *,
+        topic: str,
+        blueprint: dict | None,
+        text: str,
+        tags: list[str],
+        template_format: str,
+        include_script_recommendations: bool,
+        project_key: str,
+        profile_context: str,
+    ) -> tuple[list[str], dict[str, Any]]:
+        router_payload: dict[str, Any] = {}
+        blocks: list[str] = []
+        task_type_norm = (task_type or "").strip().lower()
+
+        memory_records = self._memory_store.retrieve(
+            task_type,
+            topic=topic,
+            tags=tags,
+            text=text,
+            project_key=project_key,
+            top_k=getattr(self.config, "memory_retrieval_top_k", 5),
+        ) if getattr(self.config, "memory_enabled", True) else []
+
+        research_records: list[Any] = []
+        if getattr(self.config, "memory_enabled", True) and getattr(self.config, "memory_evolution_enabled", True):
+            research_conditions: dict[str, Any] = {
+                "paper_mode": self.workspace.manifest.paper_mode.value,
+            }
+            if blueprint:
+                research_conditions["has_blueprint"] = "yes"
+            research_top_k = getattr(self.config, "direction_memory_top_k", 4)
+            if task_type == "experiment":
+                research_top_k = getattr(self.config, "strategy_memory_top_k", 4)
+            research_records = self._memory_store.retrieve_research(
+                task_type,
+                topic=topic,
+                tags=tags,
+                text=text,
+                conditions=research_conditions,
+                project_key=project_key,
+                top_k=research_top_k,
+            )
+
+        static_matches: list[tuple[Any, int]] = []
+        if blueprint and task_type_norm in {"planning", "experiment", "coding"}:
+            static_matches = self._skill_matcher._static.match(blueprint)
+        elif task_type_norm in {"writing", "review"}:
+            static_matches = self._skill_matcher._static.match_writing_skills(topic=topic, template_format=template_format)
+
+        text_payload = text
+        if blueprint and not text_payload:
+            try:
+                text_payload = json.dumps(blueprint, ensure_ascii=False)
+            except TypeError:
+                text_payload = str(blueprint)
+
+        domain = self._skill_matcher._domain_for_task(task_type)
+        nl_matches = self._skill_matcher.evolution_store.match_nl_skills(
+            domain,
+            topic=topic,
+            text=text_payload,
+            tags=tags,
+            top_k=getattr(self.config, "skill_retrieval_top_k", 5),
+        ) if getattr(self.config, "skill_evolution_enabled", True) else []
+        script_matches = self._skill_matcher.evolution_store.match_script_skills(
+            domain,
+            tags=tags,
+            top_k=min(3, getattr(self.config, "skill_retrieval_top_k", 5)),
+            autorun_policy=getattr(self.config, "script_skill_autorun_policy", "safe_only"),
+        ) if getattr(self.config, "skill_evolution_enabled", True) and include_script_recommendations else []
+
+        candidate_memory: list[dict[str, Any]] = []
+        for record in memory_records:
+            candidate_memory.append(
+                {
+                    "memory_id": record.memory_id,
+                    "memory_type": record.memory_type.value,
+                    "content": self._compact_router_text(record.content, 280),
+                    "source": record.source or record.scope.value,
+                }
+            )
+        for record in research_records:
+            candidate_memory.append(
+                {
+                    "memory_id": record.memory_id,
+                    "memory_type": record.memory_kind.value,
+                    "content": self._compact_router_text(record.content, 280),
+                    "source": record.source_stage or record.source or "research_memory",
+                }
+            )
+
+        candidate_skills: list[dict[str, Any]] = []
+        for entry, _score in static_matches:
+            candidate_skills.append(
+                {
+                    "skill_id": entry.name,
+                    "summary": self._compact_router_text(entry.description or entry.name, 180),
+                    "source_kind": "static",
+                }
+            )
+        for skill in nl_matches:
+            candidate_skills.append(
+                {
+                    "skill_id": skill.stable_id or skill.skill_id,
+                    "summary": self._compact_router_text(
+                        skill.description or skill.when_to_use or skill.rule_text or skill.name,
+                        180,
+                    ),
+                    "source_kind": "evolved_nl",
+                }
+            )
+        for skill in script_matches:
+            candidate_skills.append(
+                {
+                    "skill_id": skill.skill_id,
+                    "summary": self._compact_router_text(skill.description or skill.name, 180),
+                    "source_kind": "script",
+                }
+            )
+
+        workspace_bits: list[str] = []
+        if profile_context:
+            workspace_bits.append(f"profile: {self._compact_router_text(profile_context, 320)}")
+        if blueprint:
+            workspace_bits.append(f"blueprint: {self._compact_router_text(json.dumps(blueprint, ensure_ascii=False), 420)}")
+        if text:
+            workspace_bits.append(f"current_context: {self._compact_router_text(text, 420)}")
+        workspace_context = " | ".join(workspace_bits)
+
+        router_input = {
+            "task": "Produce the hindsight-improved router decision after feedback."
+            if task_type_norm in {"experiment", "review", "writing"} and bool(text.strip())
+            else "Produce the base router decision before tool execution.",
+            "persona_id": str(self._user_profile.get("persona_id", "")),
+            "round_id": self.workspace.manifest.session_id,
+            "subsystem": self._router_subsystem(task_type_norm),
+            "turn_id": f"{task_type_norm or 'stage'}-0",
+            "profile_snapshot": self._user_profile,
+            "task_spec": {
+                "task_id": self.workspace.manifest.session_id,
+                "topic": topic or self.workspace.manifest.topic,
+                "task_brief": self._compact_router_text(topic or text or self.workspace.manifest.topic, 240),
+                "stage_focus": task_type_norm,
+            },
+            "x": {
+                "candidate_memory": candidate_memory,
+                "candidate_skills": candidate_skills,
+                "user_request": self._compact_router_text(topic or text or self.workspace.manifest.topic, 240),
+                "workspace_context": workspace_context,
+            },
+        }
+        decision = self._router_policy.decide(
+            router_input,
+            post_feedback=bool(text.strip()) and task_type_norm in {"experiment", "review", "writing"},
+        )
+
+        if decision.prompt_plan:
+            blocks.append(
+                "\n\n=== SDPO ROUTER PROMPT PLAN ===\n"
+                f"{decision.prompt_plan}\n"
+                "=== END SDPO ROUTER PROMPT PLAN ===\n"
+            )
+
+        selected_ids = set(decision.selected_memory_ids)
+        selected_generic_memories = [record for record in memory_records if record.memory_id in selected_ids]
+        selected_research_memories = [record for record in research_records if record.memory_id in selected_ids]
+
+        if selected_research_memories:
+            if task_type_norm in {"literature", "planning", "ideation"}:
+                title = "DIRECTION MEMORY"
+                instruction = (
+                    "Use these router-selected direction summaries to prioritize feasible directions "
+                    "and avoid repeating directions that failed under similar conditions."
+                )
+            elif task_type_norm == "experiment":
+                title = "STRATEGY MEMORY"
+                instruction = (
+                    "Use these router-selected experiment strategies to improve data handling, preflight validation, "
+                    "and training stability before making new implementation choices."
+                )
+            else:
+                title = "RESEARCH MEMORY"
+                instruction = "Use these router-selected research memories when they are directly relevant."
+            lines = []
+            for record in selected_research_memories:
+                source = f" [{record.source_stage or record.source}]" if (record.source_stage or record.source) else ""
+                condition_bits = ", ".join(f"{key}={value}" for key, value in list(record.conditions.items())[:4])
+                evidence = f" | evidence: {record.evidence_summary}" if record.evidence_summary else ""
+                trajectory = f" | trajectory: {'; '.join(record.trajectory_summary[:2])}" if record.trajectory_summary else ""
+                uncertainty = f" | uncertainty: {record.uncertainty_note}" if record.uncertainty_note else ""
+                suffix = f" | conditions: {condition_bits}" if condition_bits else ""
+                lines.append(f"- ({record.memory_kind.value}){source} {record.content}{suffix}{evidence}{trajectory}{uncertainty}")
+            blocks.append(
+                f"\n\n=== {title} ===\n"
+                f"{instruction}\n"
+                + "\n".join(lines)
+                + f"\n=== END {title} ===\n"
+            )
+            router_payload["selected_research_memory_ids"] = [record.memory_id for record in selected_research_memories]
+
+        if selected_generic_memories:
+            lines = []
+            for record in selected_generic_memories:
+                source = f" [{record.source}]" if record.source else ""
+                lines.append(f"- ({record.memory_type.value}){source} {record.content}")
+            blocks.append(
+                "\n\n=== LONG-TERM RESEARCH MEMORY ===\n"
+                "Use these router-selected durable preferences, prior decisions, and project facts when making choices.\n"
+                + "\n".join(lines)
+                + "\n=== END LONG-TERM RESEARCH MEMORY ===\n"
+            )
+            router_payload["selected_memory_ids"] = [record.memory_id for record in selected_generic_memories]
+
+        selected_skill_ids = set(decision.selected_skill_ids)
+        selected_static_matches = [
+            item for item in static_matches if item[0].name in selected_skill_ids
+        ]
+        selected_nl_skills = [
+            skill for skill in nl_matches if (skill.stable_id or skill.skill_id) in selected_skill_ids
+        ]
+        selected_script_skills = [
+            skill for skill in script_matches if skill.skill_id in selected_skill_ids
+        ]
+
+        if selected_static_matches:
+            static_ctx = self._skill_matcher._static.extract_context(selected_static_matches)
+            if static_ctx.phase1_context:
+                blocks.append(static_ctx.phase1_context)
+            if include_script_recommendations and static_ctx.phase2_context:
+                blocks.append(static_ctx.phase2_context)
+            router_payload["selected_static_skills"] = [entry.name for entry, _ in selected_static_matches]
+
+        if selected_nl_skills:
+            lines = []
+            for skill in selected_nl_skills:
+                instructions = "; ".join(skill.instructions[:3]) if skill.instructions else skill.rule_text
+                lines.append(
+                    f"- [{skill.domain.value}/{skill.version}] {skill.name or skill.stable_id}: {instructions}"
+                )
+            blocks.append(
+                "\n\n=== EVOLVED RESEARCH SKILLS ===\n"
+                "Apply these router-selected reusable behavioral rules distilled from prior failures, retries, reviews, and artifact maintenance.\n"
+                + "\n".join(lines)
+                + "\n=== END EVOLVED RESEARCH SKILLS ===\n"
+            )
+            router_payload["selected_evolved_skill_ids"] = [
+                skill.stable_id or skill.skill_id for skill in selected_nl_skills
+            ]
+
+        if selected_script_skills and include_script_recommendations:
+            lines = []
+            autorun_policy = getattr(self.config, "script_skill_autorun_policy", "safe_only")
+            for skill in selected_script_skills:
+                mode = "autorun" if skill.safe_to_autorun and autorun_policy != "off" else "recommended"
+                lines.append(
+                    f"- [{skill.category.value}/{mode}] {skill.name}: {skill.description} ({skill.script_path})"
+                )
+            blocks.append(
+                "\n\n=== REGISTERED PYTHON SCRIPT SKILLS ===\n"
+                "Prefer these router-selected tested low-risk automation hooks before asking the model to recreate repetitive setup or formatting work.\n"
+                + "\n".join(lines)
+                + "\n=== END REGISTERED PYTHON SCRIPT SKILLS ===\n"
+            )
+            router_payload["selected_script_skill_ids"] = [skill.skill_id for skill in selected_script_skills]
+
+        router_payload["router_input"] = router_input
+        router_payload["router_decision"] = decision.as_dict()
+        router_payload["candidate_memory_count"] = len(candidate_memory)
+        router_payload["candidate_skill_count"] = len(candidate_skills)
+        return blocks, router_payload
 
     def build_adaptive_context(
         self,
@@ -102,57 +399,74 @@ class BaseResearchAgent(ABC):
             if profile_context:
                 blocks.append(profile_context)
                 payload["profile_context"] = profile_context
-            if getattr(self.config, "memory_enabled", True) and getattr(self.config, "memory_evolution_enabled", True):
-                research_conditions: dict[str, Any] = {
-                    "paper_mode": self.workspace.manifest.paper_mode.value,
-                }
-                if blueprint:
-                    research_conditions["has_blueprint"] = "yes"
-                research_top_k = getattr(self.config, "direction_memory_top_k", 4)
-                if task_type == "experiment":
-                    research_top_k = getattr(self.config, "strategy_memory_top_k", 4)
-                research_context = self._memory_store.render_research_context(
-                    task_type,
-                    topic=topic,
-                    tags=tags,
-                    text=text,
-                    conditions=research_conditions,
-                    project_key=project_key,
-                    top_k=research_top_k,
-                )
-                if research_context:
-                    blocks.append(research_context)
-                    payload["research_memory_context"] = research_context
-            if getattr(self.config, "memory_enabled", True):
-                memory_context = self._memory_store.render_prompt_context(
-                    task_type,
-                    topic=topic,
-                    tags=tags,
-                    text=text,
-                    project_key=project_key,
-                    top_k=getattr(self.config, "memory_retrieval_top_k", 5),
-                )
-                if memory_context:
-                    blocks.append(memory_context)
-                    payload["memory_context"] = memory_context
-            if getattr(self.config, "skill_evolution_enabled", True):
-                skill_context = self._skill_matcher.build_context(
+            if bool(getattr(self.config, "same_router_hindsight_sdpo_enabled", False)):
+                sdpo_blocks, sdpo_payload = self._build_sdpo_router_blocks(
                     task_type,
                     topic=topic,
                     blueprint=blueprint,
                     text=text,
                     tags=tags,
                     template_format=template_format,
+                    include_script_recommendations=include_script_recommendations,
+                    project_key=project_key,
+                    profile_context=profile_context,
                 )
-                if not include_script_recommendations:
-                    combined = "\n\n".join(part for part in (skill_context.static_context, skill_context.evolved_context) if part)
-                else:
-                    combined = skill_context.combined_context
-                if combined:
-                    blocks.append(combined)
-                    payload["matched_skills"] = skill_context.matched_skills
-                    payload["skill_context"] = combined
+                blocks.extend(sdpo_blocks)
+                payload["router_policy"] = sdpo_payload
+            else:
+                if getattr(self.config, "memory_enabled", True) and getattr(self.config, "memory_evolution_enabled", True):
+                    research_conditions: dict[str, Any] = {
+                        "paper_mode": self.workspace.manifest.paper_mode.value,
+                    }
+                    if blueprint:
+                        research_conditions["has_blueprint"] = "yes"
+                    research_top_k = getattr(self.config, "direction_memory_top_k", 4)
+                    if task_type == "experiment":
+                        research_top_k = getattr(self.config, "strategy_memory_top_k", 4)
+                    research_context = self._memory_store.render_research_context(
+                        task_type,
+                        topic=topic,
+                        tags=tags,
+                        text=text,
+                        conditions=research_conditions,
+                        project_key=project_key,
+                        top_k=research_top_k,
+                    )
+                    if research_context:
+                        blocks.append(research_context)
+                        payload["research_memory_context"] = research_context
+                if getattr(self.config, "memory_enabled", True):
+                    memory_context = self._memory_store.render_prompt_context(
+                        task_type,
+                        topic=topic,
+                        tags=tags,
+                        text=text,
+                        project_key=project_key,
+                        top_k=getattr(self.config, "memory_retrieval_top_k", 5),
+                    )
+                    if memory_context:
+                        blocks.append(memory_context)
+                        payload["memory_context"] = memory_context
+                if getattr(self.config, "skill_evolution_enabled", True):
+                    skill_context = self._skill_matcher.build_context(
+                        task_type,
+                        topic=topic,
+                        blueprint=blueprint,
+                        text=text,
+                        tags=tags,
+                        template_format=template_format,
+                    )
+                    if not include_script_recommendations:
+                        combined = "\n\n".join(part for part in (skill_context.static_context, skill_context.evolved_context) if part)
+                    else:
+                        combined = skill_context.combined_context
+                    if combined:
+                        blocks.append(combined)
+                        payload["matched_skills"] = skill_context.matched_skills
+                        payload["skill_context"] = combined
         except Exception as exc:
+            if bool(getattr(self.config, "same_router_hindsight_sdpo_enabled", False)):
+                raise
             logger.warning("Failed to build adaptive context for %s/%s: %s", self.stage.value, task_type, exc)
         combined_context = "\n\n".join(blocks)
         if combined_context:

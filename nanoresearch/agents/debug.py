@@ -114,10 +114,11 @@ class DebugAgent(_DebugHelpersMixin, BaseResearchAgent):
                     applied_patches.append({**patch, "description": f"(rewritten) {patch.get('description', '')}"})
 
         # Step 4: Check if SLURM script itself needs fixing
-        slurm_fixed = self._fix_common_slurm_issues(code_dir)
-        if slurm_fixed:
-            fixed_files.append("run_train.slurm")
-            self.log("Fixed common SLURM script issues")
+        if bool(getattr(self.config, "execution_auto_repair_enabled", False)):
+            slurm_fixed = self._fix_common_slurm_issues(code_dir)
+            if slurm_fixed:
+                fixed_files.append("run_train.slurm")
+                self.log("Fixed common SLURM script issues")
 
         needs_resubmit = True
         if not fixed_files and not patches:

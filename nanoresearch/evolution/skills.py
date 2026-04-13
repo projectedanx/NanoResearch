@@ -14,6 +14,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from nanoresearch.profile import get_nanoresearch_home
+
 logger = logging.getLogger(__name__)
 _WORD_RE = re.compile(r"[a-z][a-z0-9_-]{2,}")
 _ALLOWED_SCRIPT_CATEGORIES = {
@@ -126,11 +128,11 @@ class SkillLifecycleResult(BaseModel):
 
 
 class SkillEvolutionStore:
-    """Persistent adaptive skill registry under ``~/.nanoresearch/skills``."""
+    """Persistent adaptive skill registry under ``${NANORESEARCH_HOME}/skills``."""
 
     def __init__(self, root: Path | None = None, *, enabled: bool = True) -> None:
         self.enabled = enabled
-        self.root = root or (Path.home() / ".nanoresearch" / "skills")
+        self.root = root or (get_nanoresearch_home() / "skills")
         self.nl_file = self.root / "natural_language.json"
         self.script_file = self.root / "script_registry.json"
         self.candidate_file = self.root / "candidate_log.json"

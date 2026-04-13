@@ -88,30 +88,37 @@ def build_experiment_manifest(
     *,
     personas: Iterable[str] | None = None,
     include_appendix_baseline: bool = True,
+    evolution_rounds: int = 1,
 ) -> list[dict[str, Any]]:
     normalized_questions = [_normalize_question(question) for question in test_questions]
     persona_list = [str(persona).strip() for persona in (personas or DEFAULT_PERSONA_IDS) if str(persona).strip()]
     variants = MAIN_VARIANTS + (APPENDIX_VARIANTS if include_appendix_baseline else [])
+    rounds = max(1, int(evolution_rounds))
 
     manifest: list[dict[str, Any]] = []
     for persona_id in persona_list:
         for question in normalized_questions:
             for variant in variants:
-                manifest.append(
-                    {
-                        "assignment_id": f"{persona_id}::{variant.name}::{question['question_id']}",
-                        "persona_id": persona_id,
-                        "variant_name": variant.name,
-                        "variant_label": variant.label,
-                        "component_flags": {
-                            "memory_self_evolution": variant.memory_self_evolution,
-                            "skill_self_evolution": variant.skill_self_evolution,
-                            "same_router_hindsight_sdpo": variant.same_router_hindsight_sdpo,
-                            "appendix_only": variant.appendix_only,
-                        },
-                        "question": question,
-                    }
-                )
+                chain_id = f"{persona_id}::{variant.name}::{question['question_id']}"
+                for evolution_round in range(1, rounds + 1):
+                    manifest.append(
+                        {
+                            "assignment_id": f"{chain_id}::round{evolution_round:02d}",
+                            "chain_id": chain_id,
+                            "evolution_round": evolution_round,
+                            "evolution_total_rounds": rounds,
+                            "persona_id": persona_id,
+                            "variant_name": variant.name,
+                            "variant_label": variant.label,
+                            "component_flags": {
+                                "memory_self_evolution": variant.memory_self_evolution,
+                                "skill_self_evolution": variant.skill_self_evolution,
+                                "same_router_hindsight_sdpo": variant.same_router_hindsight_sdpo,
+                                "appendix_only": variant.appendix_only,
+                            },
+                            "question": question,
+                        }
+                    )
     return manifest
 
 

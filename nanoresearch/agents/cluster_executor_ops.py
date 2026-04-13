@@ -193,6 +193,10 @@ class _ClusterExecutorOpsMixin:
             )
 
         cpus = max(self.gpus * 8, 4)
+        time_limit = str(self.time_limit or "").strip()
+        time_directive = ""
+        if time_limit and time_limit.lower() not in {"none", "null", "unset", "unlimited"}:
+            time_directive = f"#SBATCH --time={time_limit}\n"
         return f"""#!/bin/bash
 #SBATCH --partition={self.partition}
 #SBATCH --gres=gpu:{self.gpus}
@@ -202,7 +206,7 @@ class _ClusterExecutorOpsMixin:
 #SBATCH --job-name=nano_exp
 #SBATCH --output={cluster_code_path}/logs/%j.log
 #SBATCH --error={cluster_code_path}/logs/%j.err
-#SBATCH --time={self.time_limit}
+{time_directive}
 
 echo "=== Job $SLURM_JOB_ID on $SLURM_NODELIST | {self.gpus} GPUs | $(date) ==="
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"

@@ -25,13 +25,23 @@ class _CodingHelpersMixin:
         """Generate a SLURM batch script for training."""
         compute = blueprint.get("compute_requirements", {})
         try:
-            num_gpus = min(int(compute.get("num_gpus", 1)), 4)
+            requested_gpus = int(compute.get("num_gpus", 1))
         except (ValueError, TypeError):
-            num_gpus = 1
+            requested_gpus = 1
+        max_gpus = getattr(self.config, "slurm_max_gpus", 2) or 2
+        try:
+            max_gpus = int(max_gpus)
+        except (ValueError, TypeError):
+            max_gpus = 2
+        num_gpus = max(1, min(requested_gpus, max_gpus, 4))
         project_name = code_plan.get("project_name", "experiment")
 
         partition = getattr(self.config, "slurm_partition", "gpu") or "gpu"
-        estimated_time = getattr(self.config, "slurm_default_time", "30-00:00:00")
+        quota_type = getattr(self.config, "slurm_quota_type", "auto") or "auto"
+        estimated_time = str(getattr(self.config, "slurm_default_time", "") or "").strip()
+        time_directive = ""
+        if estimated_time and estimated_time.lower() not in {"none", "null", "unset", "unlimited"}:
+            time_directive = f"#SBATCH --time={estimated_time}\n"
         conda_env = getattr(self.config, "experiment_conda_env", None)
 
         script = f"""#!/bin/bash
@@ -41,9 +51,11 @@ class _CodingHelpersMixin:
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:{num_gpus}
-#SBATCH --time={estimated_time}
-#SBATCH --output={code_dir}/logs/slurm_%j.out
+#SBATCH --quotatype={quota_type}
+{time_directive}#SBATCH --output={code_dir}/logs/slurm_%j.out
 #SBATCH --error={code_dir}/logs/slurm_%j.err
+
+set -euo pipefail
 
 echo "========================================"
 echo "Job ID: $SLURM_JOB_ID"
@@ -53,18 +65,45 @@ echo "Start: $(date)"
 echo "========================================"
 
 # Setup environment -- auto-detect conda location
-CONDA_SH="$HOME/anaconda3/etc/profile.d/conda.sh"
-[ ! -f "$CONDA_SH" ] && CONDA_SH="$HOME/miniconda3/etc/profile.d/conda.sh"
-[ ! -f "$CONDA_SH" ] && CONDA_SH="$(conda info --base 2>/dev/null)/etc/profile.d/conda.sh"
-source "$CONDA_SH" 2>/dev/null || true
+CONDA_SH=""
+if [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
+    CONDA_SH="$HOME/anaconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    CONDA_SH="$HOME/miniconda3/etc/profile.d/conda.sh"
+elif command -v conda >/dev/null 2>&1; then
+    CONDA_BASE="$(conda info --base 2>/dev/null || true)"
+    if [ -n "$CONDA_BASE" ] && [ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+        CONDA_SH="$CONDA_BASE/etc/profile.d/conda.sh"
+    fi
+fi
+
+activate_conda_env() {{
+    local env_name="$1"
+    local activate_status=1
+    set +e
+    set +u
+    if [ -n "$CONDA_SH" ] && [ -f "$CONDA_SH" ]; then
+        source "$CONDA_SH" 2>/dev/null || true
+    fi
+    if command -v conda >/dev/null 2>&1; then
+        conda activate "$env_name" >/dev/null 2>&1
+        activate_status=$?
+    fi
+    set -u
+    set -e
+    return "$activate_status"
+}}
 """
         if conda_env:
-            script += f'conda activate {conda_env}\n'
+            script += f"""if ! activate_conda_env "{conda_env}"; then
+    echo "Warning: failed to activate conda env '{conda_env}', continuing with current Python"
+fi
+"""
         else:
-            script += """if conda env list 2>/dev/null | grep -q "^torch "; then
-    conda activate torch
-elif conda env list 2>/dev/null | grep -q "^nanoresearch "; then
-    conda activate nanoresearch
+            script += """if activate_conda_env "torch"; then
+    echo "Activated conda env: torch"
+elif activate_conda_env "nanoresearch"; then
+    echo "Activated conda env: nanoresearch"
 else
     echo "Warning: no suitable conda env found, using base"
 fi
@@ -80,9 +119,11 @@ mkdir -p {code_dir}/results
 mkdir -p {code_dir}/checkpoints
 mkdir -p {code_dir}/logs
 
-# Install requirements
+# Install requirements only when a manifest exists
 cd {code_dir}
-pip install -r requirements.txt --quiet 2>/dev/null || true
+if [ -f requirements.txt ]; then
+    pip install -r requirements.txt --quiet 2>/dev/null || true
+fi
 
 # Run training
 echo "Starting training..."

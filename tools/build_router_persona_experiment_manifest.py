@@ -15,6 +15,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Output manifest jsonl path")
     parser.add_argument("--summary-output", default="", help="Optional summary json path")
     parser.add_argument("--persona", action="append", default=[], help="Optional persona override; may be passed multiple times")
+    parser.add_argument("--evolution-rounds", type=int, default=1, help="How many sequential evolution rounds to generate per persona×variant×question chain")
     parser.add_argument(
         "--include-appendix-baseline",
         dest="include_appendix_baseline",
@@ -53,6 +54,7 @@ def main() -> None:
         questions,
         personas=args.persona or None,
         include_appendix_baseline=args.include_appendix_baseline,
+        evolution_rounds=max(1, args.evolution_rounds),
     )
 
     output_path = Path(args.output)
@@ -66,6 +68,7 @@ def main() -> None:
         "question_count": len(questions),
         "personas": sorted({row["persona_id"] for row in manifest}),
         "variants": sorted({row["variant_name"] for row in manifest}),
+        "evolution_rounds": max(1, args.evolution_rounds),
         "include_appendix_baseline": args.include_appendix_baseline,
     }
     if args.summary_output:

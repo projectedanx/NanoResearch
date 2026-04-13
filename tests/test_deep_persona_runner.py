@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from nanoresearch.experiments.deep_persona_runner import (
     DEFAULT_PERSONA_BRIEFS,
+    _apply_variant_overrides,
     build_assignment_topic,
     build_result_record,
     resolve_variant_runtime_settings,
 )
+from nanoresearch.config import ResearchConfig
 
 
 def _question(question_id: str = 'q1') -> dict:
@@ -42,6 +44,18 @@ def test_variant_settings_map_to_expected_runtime_flags() -> None:
     appendix = resolve_variant_runtime_settings('context_informed_generation')
     assert appendix['appendix_only'] is True
     assert appendix['same_router_hindsight_sdpo'] is False
+
+
+def test_apply_variant_overrides_propagates_sdpo_flag_into_runtime_config() -> None:
+    base_config = ResearchConfig(base_url='https://example.com', api_key='test-key')
+    settings = resolve_variant_runtime_settings('full_system')
+
+    variant_config = _apply_variant_overrides(base_config, settings)
+
+    assert variant_config.same_router_hindsight_sdpo_enabled is True
+    assert variant_config.memory_enabled is True
+    assert variant_config.memory_evolution_enabled is True
+    assert variant_config.skill_evolution_enabled is True
 
 
 def test_build_assignment_topic_includes_persona_and_question_context() -> None:

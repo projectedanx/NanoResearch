@@ -66,10 +66,10 @@ PYTHONPATH=. /usr/bin/python3 tools/run_router_persona_deep_experiment.py \
   --limit 1
 ```
 
-### Current SDPO limitation
-The deep runner currently refuses SDPO-bearing variants (`sdpo_only`, `memory_sdpo`, `skill_sdpo`, `full_system`) because the main deep pipeline does not yet have a real same-router SDPO backend wired into `build_adaptive_context`. This is an explicit guard to avoid generating invalid ablation results.
+### SDPO-bearing variants
+The deep runner now wires `same_router_hindsight_sdpo` into the main deep pipeline by enabling router hindsight context inside `build_adaptive_context`. This lets SDPO-bearing variants (`sdpo_only`, `memory_sdpo`, `skill_sdpo`, `full_system`) run through the same deep evaluation path as the non-SDPO variants.
 
-If you want a non-SDPO smoke run now, either:
+If you want a non-SDPO-only smoke run, either:
 
 - filter to `base_router`, `memory_only`, `skill_only`, or `memory_skill`
 - or pass `--skip-sdpo-variants`

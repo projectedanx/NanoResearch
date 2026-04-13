@@ -15,7 +15,6 @@ from typing import Any, Callable
 
 from nanoresearch.agents.base import BaseResearchAgent
 from nanoresearch.config import ResearchConfig
-from nanoresearch.pipeline.blueprint_validator import validate_blueprint
 from nanoresearch.pipeline.cost_tracker import CostTracker
 from nanoresearch.pipeline.progress import ProgressEmitter
 from nanoresearch.pipeline.state import PipelineStateMachine
@@ -207,17 +206,9 @@ class BaseOrchestrator(ABC):
                 # Cross-stage reference validation
                 self._validate_cross_stage_refs(stage, results)
 
-                # Blueprint semantic validation after PLANNING
-                if stage == PipelineStage.PLANNING:
-                    bp = results.get("experiment_blueprint", {})
-                    issues = validate_blueprint(bp)
-                    if issues:
-                        for issue in issues:
-                            logger.warning("Blueprint issue: %s", issue)
-                        self.progress_emitter.substep(
-                            stage.value,
-                            f"Blueprint validation: {len(issues)} issue(s) found",
-                        )
+                # Semantic blueprint review now happens inside PlanningAgent via
+                # an LLM review pass after schema validation. The orchestrator
+                # no longer runs a separate hard-coded heuristic validator here.
 
                 self._report_progress(
                     stage.value, "completed",

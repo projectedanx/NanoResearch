@@ -193,7 +193,7 @@ class _LocalRunnerMixin(
                     "initial_contract": launch_contract,
                     "final_contract": launch_contract,
                 }
-                if launch_contract.get("status") == "failed":
+                if self._execution_auto_repair_enabled() and launch_contract.get("status") == "failed":
                     launch_contract_repair = repair_launch_contract(base_command, code_dir)
                     self._record_launch_contract_repair_ledger(
                         launch_contract_repair,

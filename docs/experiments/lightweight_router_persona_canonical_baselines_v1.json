@@ -1,0 +1,232 @@
+[
+  {
+    "question_id": "light_nlp_biomed_qa",
+    "question_label": "Biomedical QA",
+    "notes": "Use a shared PubMedQA anchor baseline for every variant under this topic.",
+    "metrics": [
+      {
+        "metric_name": "Accuracy",
+        "metric_aliases": ["accuracy", "pubmedqa accuracy"],
+        "baseline_name": "PubMedBERT",
+        "baseline_value": 0.724,
+        "higher_is_better": true,
+        "provenance_kind": "local_case_study",
+        "provenance_title": "NIPS experiment setting case study",
+        "provenance_uri": "/mnt/petrelfs/xujinhang/nanoresearch_eval/docs/experiments/nips_experiment_setting_sdpo_case_study_20260412.md"
+      }
+    ]
+  },
+  {
+    "question_id": "light_nlp_short_text_cls",
+    "question_label": "Short-Text Classification",
+    "notes": "Prefer the AG News accuracy anchor when the metric name is generic Accuracy.",
+    "metrics": [
+      {
+        "metric_name": "Accuracy",
+        "metric_aliases": ["accuracy", "ag news accuracy", "agnews_accuracy"],
+        "baseline_name": "DistilBERT",
+        "baseline_value": 0.9346,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "Weight Squeezing benchmark table on AG News",
+        "provenance_uri": "https://openreview.net/pdf/fd4d62c6b89fcdc72ccc3739da5c88d0ead961c8.pdf"
+      },
+      {
+        "metric_name": "SST-2 Accuracy",
+        "metric_aliases": ["sst-2 accuracy", "sst2_accuracy"],
+        "baseline_name": "DistilBERT",
+        "baseline_value": 0.913,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "Public DistilBERT SST-2 benchmark",
+        "provenance_uri": "https://huggingface.co/distilbert/distilbert-base-uncased-finetuned-sst-2-english/discussions/11"
+      }
+    ]
+  },
+  {
+    "question_id": "light_nlp_sentence_pair_cls",
+    "question_label": "Sentence-Pair Classification",
+    "notes": "Use MRPC accuracy as the shared anchor because MRPC is the first listed dataset and current runs report generic Accuracy.",
+    "metrics": [
+      {
+        "metric_name": "Accuracy",
+        "metric_aliases": ["accuracy", "mrpc accuracy", "mrpc_accuracy"],
+        "baseline_name": "DistilBERT",
+        "baseline_value": 0.857843,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "textattack/distilbert-base-uncased-MRPC model card",
+        "provenance_uri": "https://huggingface.co/textattack/distilbert-base-uncased-MRPC"
+      }
+    ]
+  },
+  {
+    "question_id": "light_cv_small_image_cls",
+    "question_label": "Small-Image Classification",
+    "notes": "Use CIFAR-10 accuracy for the shared anchor because current experiment outputs report CIFAR-10_accuracy.",
+    "metrics": [
+      {
+        "metric_name": "CIFAR-10_accuracy",
+        "metric_aliases": ["cifar-10_accuracy", "accuracy", "top-1 accuracy", "top1 accuracy", "top-1 accuracy (cifar-10)"],
+        "baseline_name": "ResNet-18",
+        "baseline_value": 0.949,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_06/cv_fast_iteration_builder-skill_only-light_cv_small_image_cls-round02/workspaces/attempt-01/drafts/experiment_summary.md"
+      }
+    ]
+  },
+  {
+    "question_id": "light_multimodal_efficiency",
+    "question_label": "Multimodal Efficiency",
+    "notes": "Keep both MMMU and ScienceQA anchors because generated blueprints may pick either benchmark as primary.",
+    "metrics": [
+      {
+        "metric_name": "MMMU Accuracy",
+        "metric_aliases": ["mmmu accuracy", "accuracy"],
+        "baseline_name": "Phi-3-Vision-128K-Instruct",
+        "baseline_value": 0.404,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "Phi-3-Vision-128K-Instruct README benchmark table",
+        "provenance_uri": "https://huggingface.co/microsoft/Phi-3-vision-128k-instruct"
+      },
+      {
+        "metric_name": "ScienceQA Accuracy",
+        "metric_aliases": ["scienceqa accuracy"],
+        "baseline_name": "Phi-3-Vision-128K-Instruct",
+        "baseline_value": 0.908,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "Phi-3-Vision-128K-Instruct README benchmark table",
+        "provenance_uri": "https://huggingface.co/microsoft/Phi-3-vision-128k-instruct"
+      }
+    ]
+  },
+  {
+    "question_id": "light_tabular_budgeted_cls",
+    "question_label": "Budgeted Tabular Classification",
+    "notes": "Use Adult accuracy by default because current successful executions report Adult_accuracy.",
+    "metrics": [
+      {
+        "metric_name": "Adult_accuracy",
+        "metric_aliases": ["adult_accuracy", "accuracy"],
+        "baseline_name": "XGBoost",
+        "baseline_value": 0.873,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_10/multimodal_systems_engineer-skill_only-light_tabular_budgeted_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      },
+      {
+        "metric_name": "CoverType_accuracy",
+        "metric_aliases": ["covertype_accuracy"],
+        "baseline_name": "XGBoost",
+        "baseline_value": 0.962,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_10/multimodal_systems_engineer-skill_only-light_tabular_budgeted_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      }
+    ]
+  },
+  {
+    "question_id": "light_tabular_regression",
+    "question_label": "Tabular Regression",
+    "notes": "Use California Housing anchors for RMSE and MSE so regression deltas are shared across variants.",
+    "metrics": [
+      {
+        "metric_name": "RMSE",
+        "metric_aliases": ["rmse"],
+        "baseline_name": "XGBoost Regressor",
+        "baseline_value": 0.4361,
+        "higher_is_better": false,
+        "provenance_kind": "public_reference",
+        "provenance_title": "California Housing benchmark table",
+        "provenance_uri": "https://openreview.net/pdf/df060d853ee63a62dd56e3bcd4bb994445a105fc.pdf"
+      },
+      {
+        "metric_name": "MSE",
+        "metric_aliases": ["mse"],
+        "baseline_name": "XGBoost Regressor",
+        "baseline_value": 0.1901,
+        "higher_is_better": false,
+        "provenance_kind": "public_reference",
+        "provenance_title": "California Housing benchmark table",
+        "provenance_uri": "https://openreview.net/pdf/df060d853ee63a62dd56e3bcd4bb994445a105fc.pdf"
+      }
+    ]
+  },
+  {
+    "question_id": "light_timeseries_sensor_cls",
+    "question_label": "Time-Series Sensor Classification",
+    "notes": "Use the strongest listed baseline from the current summary for both Accuracy and macro-F1.",
+    "metrics": [
+      {
+        "metric_name": "Accuracy",
+        "metric_aliases": ["accuracy"],
+        "baseline_name": "InceptionTime-small",
+        "baseline_value": 0.94,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_13/nlp_conference_pragmatic-base_router-light_timeseries_sensor_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      },
+      {
+        "metric_name": "F1",
+        "metric_aliases": ["f1", "f1-score (macro)"],
+        "baseline_name": "InceptionTime-small",
+        "baseline_value": 0.94,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_13/nlp_conference_pragmatic-base_router-light_timeseries_sensor_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      }
+    ]
+  },
+  {
+    "question_id": "light_graph_node_cls",
+    "question_label": "Graph Node Classification",
+    "notes": "Use Cora accuracy by default because current graph runs report Accuracy (Cora).",
+    "metrics": [
+      {
+        "metric_name": "Accuracy (Cora)",
+        "metric_aliases": ["accuracy (cora)", "accuracy", "cora_accuracy"],
+        "baseline_name": "GCN",
+        "baseline_value": 0.815,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_14/nlp_conference_pragmatic-skill_only-light_graph_node_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      },
+      {
+        "metric_name": "Accuracy (Citeseer)",
+        "metric_aliases": ["accuracy (citeseer)", "citeseer_accuracy"],
+        "baseline_name": "GCN",
+        "baseline_value": 0.703,
+        "higher_is_better": true,
+        "provenance_kind": "local_artifact",
+        "provenance_title": "Current batch experiment summary",
+        "provenance_uri": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/balanced_ring10topics_minimax3r_20260413_132957/output/shard_14/nlp_conference_pragmatic-skill_only-light_graph_node_cls-round01/workspaces/attempt-01/drafts/experiment_summary.md"
+      }
+    ]
+  },
+  {
+    "question_id": "light_audio_keyword_cls",
+    "question_label": "Audio Keyword Classification",
+    "notes": "Use the Speech Commands v2 20-command CRNN-attention result as a lightweight shared anchor.",
+    "metrics": [
+      {
+        "metric_name": "accuracy",
+        "metric_aliases": ["accuracy"],
+        "baseline_name": "CRNN attention baseline",
+        "baseline_value": 0.945,
+        "higher_is_better": true,
+        "provenance_kind": "public_reference",
+        "provenance_title": "A neural attention model for speech command recognition",
+        "provenance_uri": "https://arxiv.org/abs/1808.08929"
+      }
+    ]
+  }
+]

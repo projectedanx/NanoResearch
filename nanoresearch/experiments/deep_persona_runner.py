@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Iterable
 
+from .canonical_baselines import lookup_canonical_baseline
 from .router_persona_eval import VARIANT_BY_NAME
 
 DEFAULT_PERSONA_BRIEFS = {
@@ -204,12 +205,24 @@ def build_result_record(
 ) -> dict[str, Any]:
     primary_metric_name, higher_is_better = _select_primary_metric(blueprint, experiment_output, analysis_output)
     final_performance = _extract_final_performance(primary_metric_name, experiment_output, analysis_output)
-    baseline_performance = _extract_baseline_performance(primary_metric_name, higher_is_better, blueprint)
+    canonical_baseline = lookup_canonical_baseline(
+        str((assignment.get('question') or {}).get('question_id') or assignment.get('question_id') or ''),
+        primary_metric_name,
+    )
+    if canonical_baseline is not None:
+        higher_is_better = bool(canonical_baseline.get('higher_is_better', higher_is_better))
+        baseline_performance = _to_optional_float(canonical_baseline.get('baseline_value'))
+    else:
+        baseline_performance = _extract_baseline_performance(primary_metric_name, higher_is_better, blueprint)
+    final_performance, baseline_performance = _normalize_metric_scale_pair(final_performance, baseline_performance)
     delta = _compute_delta(final_performance, baseline_performance, higher_is_better)
     implementation_success = _is_successful_implementation(experiment_output)
 
     return {
         'assignment_id': assignment.get('assignment_id'),
+        'chain_id': assignment.get('chain_id'),
+        'evolution_round': assignment.get('evolution_round'),
+        'evolution_total_rounds': assignment.get('evolution_total_rounds'),
         'persona_id': assignment.get('persona_id'),
         'variant_name': assignment.get('variant_name'),
         'question_id': (assignment.get('question') or {}).get('question_id'),
@@ -234,6 +247,10 @@ def build_result_record(
             'execution_output_path': str(Path(workspace_path) / 'plans' / 'execution_output.json'),
             'analysis_output_path': str(Path(workspace_path) / 'plans' / 'analysis_output.json'),
             'experiment_status': _extract_status(experiment_output),
+            'canonical_baseline_applied': canonical_baseline is not None,
+            'canonical_baseline_name': canonical_baseline.get('baseline_name') if canonical_baseline else None,
+            'canonical_baseline_metric_name': canonical_baseline.get('metric_name') if canonical_baseline else None,
+            'canonical_baseline_provenance': canonical_baseline.get('provenance_uri') if canonical_baseline else None,
         },
     }
 
@@ -244,25 +261,25 @@ async def run_assignment(
     output_dir: str | Path,
     config_path: str | Path | None = None,
     max_alignment_retries: int = 1,
+    disable_ideation_retrieval: bool = False,
 ) -> AssignmentOutcome:
     settings = resolve_variant_runtime_settings(str(assignment.get('variant_name') or ''))
-    if settings['same_router_hindsight_sdpo']:
-        raise RuntimeError(
-            'same-router hindsight SDPO is not integrated into the main deep pipeline yet; '
-            'run non-SDPO variants only until a real router backend is wired.'
-        )
-
     ResearchConfig, Workspace, UnifiedPipelineOrchestrator, PipelineMode, PaperMode, build_profile_seed, save_user_profile = _load_runtime_symbols()
     assignment_slug = _slugify(str(assignment.get('assignment_id') or 'assignment'))
     assignment_root = Path(output_dir) / assignment_slug
     assignment_root.mkdir(parents=True, exist_ok=True)
-    nanoresearch_home = assignment_root / 'nanoresearch_home'
+    chain_slug = _slugify(str(assignment.get('chain_id') or assignment.get('assignment_id') or 'assignment'))
+    chain_root = Path(output_dir) / '_chains' / chain_slug
+    chain_root.mkdir(parents=True, exist_ok=True)
+    nanoresearch_home = chain_root / 'nanoresearch_home'
     previous_home = os.environ.get('NANORESEARCH_HOME')
     os.environ['NANORESEARCH_HOME'] = str(nanoresearch_home)
 
     try:
         save_user_profile(_build_persona_profile(assignment, build_profile_seed))
         base_config = ResearchConfig.load(Path(config_path) if config_path else None)
+        if disable_ideation_retrieval:
+            base_config.ideation_disable_retrieval = True
 
         alignment_feedback = ''
         alignment_token_total = 0
@@ -332,6 +349,9 @@ async def run_assignment(
         record['metadata']['alignment_attempts'] = attempts
         record['metadata']['workspace_paths'] = workspace_paths
         record['metadata']['nanoresearch_home'] = str(nanoresearch_home)
+        record['metadata']['evolution_chain_id'] = str(assignment.get('chain_id') or assignment.get('assignment_id') or '')
+        record['metadata']['evolution_round'] = int(assignment.get('evolution_round') or 1)
+        record['metadata']['evolution_total_rounds'] = int(assignment.get('evolution_total_rounds') or 1)
         record['metadata']['persona_profile_path'] = str(nanoresearch_home / 'profile' / 'profile.json')
         (assignment_root / 'result.json').write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
         return AssignmentOutcome(record=record, alignment_attempts=attempts, workspace_paths=workspace_paths)
@@ -348,6 +368,7 @@ async def run_manifest(
     output_dir: str | Path,
     config_path: str | Path | None = None,
     max_alignment_retries: int = 1,
+    disable_ideation_retrieval: bool = False,
 ) -> list[dict[str, Any]]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -359,6 +380,7 @@ async def run_manifest(
             output_dir=output_path,
             config_path=config_path,
             max_alignment_retries=max_alignment_retries,
+            disable_ideation_retrieval=disable_ideation_retrieval,
         )
         rows.append(outcome.record)
         with results_jsonl.open('a', encoding='utf-8') as handle:
@@ -381,6 +403,7 @@ def _apply_variant_overrides(base_config: Any, settings: dict[str, Any]) -> Any:
     config.memory_enabled = bool(settings['memory_enabled'])
     config.memory_evolution_enabled = bool(settings['memory_evolution_enabled'])
     config.skill_evolution_enabled = bool(settings['skill_evolution_enabled'])
+    config.same_router_hindsight_sdpo_enabled = bool(settings['same_router_hindsight_sdpo'])
     merged_skips = list(dict.fromkeys([*(getattr(config, 'skip_stages', []) or []), *SKIPPED_DEEP_STAGES]))
     config.skip_stages = merged_skips
     return config
@@ -556,6 +579,34 @@ def _compute_delta(final_performance: float | None, baseline_performance: float 
     return round(baseline_performance - final_performance, 6)
 
 
+def _looks_like_fraction_metric(value: float | None) -> bool:
+    return value is not None and 0.0 <= value <= 1.5
+
+
+def _looks_like_percentage_metric(value: float | None) -> bool:
+    return value is not None and 1.5 < value <= 100.0
+
+
+def _normalize_metric_scale_pair(
+    final_performance: float | None,
+    baseline_performance: float | None,
+) -> tuple[float | None, float | None]:
+    """Normalize percentage-vs-fraction mismatches before delta computation.
+
+    Generated blueprints often encode baseline expectations as percentages
+    (e.g. 79.0) while execution outputs emit fractions (e.g. 0.79). We only
+    rescale when one side clearly looks like a percentage and the other clearly
+    looks like a fraction.
+    """
+    normalized_final = final_performance
+    normalized_baseline = baseline_performance
+    if _looks_like_fraction_metric(normalized_final) and _looks_like_percentage_metric(normalized_baseline):
+        normalized_baseline = round(float(normalized_baseline) / 100.0, 6)
+    elif _looks_like_percentage_metric(normalized_final) and _looks_like_fraction_metric(normalized_baseline):
+        normalized_final = round(float(normalized_final) / 100.0, 6)
+    return normalized_final, normalized_baseline
+
+
 def _extract_status(experiment_output: dict[str, Any]) -> str:
     for key in ('experiment_status', 'final_status', 'status'):
         value = experiment_output.get(key)
@@ -570,6 +621,26 @@ def _extract_status(experiment_output: dict[str, Any]) -> str:
 
 
 def _is_successful_implementation(experiment_output: dict[str, Any]) -> bool:
+    result_contract = experiment_output.get('result_contract')
+    if isinstance(result_contract, dict):
+        contract_status = str(result_contract.get('status') or '').strip().lower()
+        success_path = str(result_contract.get('success_path') or '').strip()
+        failure_signals = list(result_contract.get('failure_signals', []) or [])
+        execution_status = str(result_contract.get('execution_status') or '').strip().lower()
+        final_status = str(result_contract.get('final_status') or '').strip().lower()
+        satisfied_signals = set(str(item).strip().lower() for item in (result_contract.get('satisfied_signals') or []))
+        if contract_status == 'success':
+            return True
+        if contract_status == 'partial' and success_path and not failure_signals:
+            return True
+        if (
+            contract_status == 'partial'
+            and success_path
+            and execution_status in _STATUS_SUCCESS
+            and final_status in _STATUS_SUCCESS
+            and bool(satisfied_signals & {'training_log', 'result_files', 'metrics_signal'})
+        ):
+            return True
     status = _extract_status(experiment_output).lower()
     if status in _STATUS_SUCCESS:
         return True

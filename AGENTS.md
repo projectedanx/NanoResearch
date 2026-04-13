@@ -2,6 +2,15 @@
 
 NanoResearch is an end-to-end autonomous AI research engine. In Codex integration mode, Codex should drive the existing pipeline rather than inventing a second workflow.
 
+## Session Memory Bootstrap
+
+Before starting substantial work in a new Codex window, read:
+
+1. `./PROJECT_MEMORY_NANORESEARCH.md`
+2. `~/.codex/memories/nanoresearch_project.md` (if present)
+
+After major milestones, update both memory files so local and server sessions stay aligned.
+
 ## Core Goal
 
 Given a research topic, NanoResearch should produce a resumable research workspace containing:

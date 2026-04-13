@@ -62,6 +62,7 @@ class ResearchConfig(BaseModel):
             max_tokens=16384, timeout=600.0,
         )
     )
+    ideation_disable_retrieval: bool = False
     planning: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
             model="deepseek-ai/DeepSeek-V3.2", temperature=0.2,
@@ -81,7 +82,7 @@ class ResearchConfig(BaseModel):
     )
     code_gen: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="gpt-5.2-codex", temperature=None,
+            model="MiniMax-M2.7", temperature=None,
             max_tokens=16384, timeout=600.0,
         )
     )
@@ -141,6 +142,7 @@ class ResearchConfig(BaseModel):
     runtime_auto_install_max_packages: int = 50
     runtime_auto_install_max_nltk_downloads: int = 50
     runtime_auto_install_allowlist: list[str] = Field(default_factory=list)
+    execution_auto_repair_enabled: bool = False
 
     # Adaptive memory and skill evolution settings
     memory_enabled: bool = True
@@ -153,6 +155,14 @@ class ResearchConfig(BaseModel):
     skill_retrieval_top_k: int = 5
     script_skill_autorun_policy: str = "safe_only"
     static_skills_dir: str = ""
+    same_router_hindsight_sdpo_enabled: bool = False
+    router_sdpo_model_path: str = ""
+    router_sdpo_model_name: str = ""
+    router_sdpo_base_url: str = ""
+    router_sdpo_api_key: str = ""
+    router_sdpo_max_new_tokens: int = 256
+    router_sdpo_temperature: float = 0.0
+    router_sdpo_timeout: float = 120.0
 
     # Environment backend for experiment execution.
     # "auto" — prefer conda/mamba when available, fall back to venv.
@@ -194,7 +204,8 @@ class ResearchConfig(BaseModel):
     # SLURM settings for react mode (auto-detected if empty)
     slurm_partition: str = ""                # SLURM partition (auto-detected if empty)
     slurm_max_gpus: int = 2                 # max GPUs per job
-    slurm_default_time: str = "30-00:00:00"  # default wall time (30 days)
+    slurm_quota_type: str = "auto"          # auto/reserved/spot (auto prefers reserved, falls back to spot)
+    slurm_default_time: str = ""             # empty = do not emit #SBATCH --time
     # Container settings for react mode (for clusters with old glibc)
     container_image: str = ""               # e.g., "docker://ubuntu:22.04" (clean base with glibc 2.35)
     container_path: str = ""                # e.g., "/mnt/shared/ubuntu2204.sif"

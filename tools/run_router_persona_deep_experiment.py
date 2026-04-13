@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--limit', type=int, default=0, help='Optional max number of assignments to run after filtering.')
     parser.add_argument('--max-alignment-retries', type=int, default=1, help='Maximum additional full-pipeline retries after a failed alignment judgment.')
     parser.add_argument('--skip-sdpo-variants', action='store_true', help='Skip variants whose semantics require same-router hindsight SDPO.')
+    parser.add_argument(
+        '--disable-ideation-retrieval',
+        action='store_true',
+        help='Run IDEATION in eval-fast mode using only the manifest/topic context, without online literature or GitHub retrieval.',
+    )
     return parser.parse_args()
 
 
@@ -108,6 +113,7 @@ async def _main_async(args: argparse.Namespace) -> int:
         output_dir=output_dir,
         config_path=args.config,
         max_alignment_retries=max(0, int(args.max_alignment_retries)),
+        disable_ideation_retrieval=bool(args.disable_ideation_retrieval),
     )
     summary = {
         'manifest': str(manifest_path),
@@ -119,6 +125,7 @@ async def _main_async(args: argparse.Namespace) -> int:
         'variants': sorted({str(row.get('variant_name') or '') for row in selected}),
         'question_ids': sorted({str((row.get('question') or {}).get('question_id') or '') for row in selected}),
         'max_alignment_retries': int(args.max_alignment_retries),
+        'disable_ideation_retrieval': bool(args.disable_ideation_retrieval),
     }
     (output_dir / 'run_summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -24,6 +24,8 @@ CRITICAL RULES — evidence grounding:
 - For the proposed method, describe expected improvements as a "projected improvement range" (e.g. "5-10% improvement over best baseline"), NOT as exact numbers.
 - Every baseline number MUST have a "performance_provenance" entry citing which paper it came from.
 - Mark proposed-method values as projected: set "is_projected" to true for each metric.
+- Reuse metric names EXACTLY. The keys in baseline "expected_performance" must exactly match the strings you put in the top-level "metrics" list.
+- Make ablations traceable. Every ablation group and variant must explicitly mention one of the proposed_method.key_components or an exact method module name in its own name/description.
 
 Design experiments that are:
 - Reproducible with standard ML frameworks
@@ -32,6 +34,26 @@ Design experiments that are:
 - Include ablation studies to validate each component
 
 Always respond in valid JSON format."""
+
+BLUEPRINT_REVIEW_SYSTEM_PROMPT = """You are a pragmatic research-plan reviewer.
+
+Your job is NOT to nitpick naming style. Your job is to detect whether an experiment blueprint has execution-blocking or evaluation-invalidating problems.
+
+Review principles:
+- Ignore cosmetic wording differences, capitalization differences, and harmless naming mismatches.
+- Do NOT require exact string overlap between ablation names and method descriptions.
+- Only mark a problem as fatal if it is likely to make execution, evaluation, or baseline comparison invalid.
+- If a metric/baseline mismatch is only a naming alias issue (e.g. Accuracy vs accuracy, F1 vs F1 Score), treat it as non-fatal and mention it only as a warning.
+- Prefer concise, actionable repair instructions.
+
+Return ONLY valid JSON with this schema:
+{
+  "should_retry": bool,
+  "fatal_issues": [{"type": str, "message": str, "repair_instruction": str}],
+  "warnings": [{"type": str, "message": str}],
+  "summary": str
+}
+"""
 
 
 class PlanningAgent(BaseResearchAgent):
@@ -131,12 +153,14 @@ Design a comprehensive experiment blueprint as JSON with:
 
 IMPORTANT: Use ONLY the numbers from the PUBLISHED QUANTITATIVE EVIDENCE section.
 If evidence is missing for a baseline-metric pair, use "N/A".
+IMPORTANT: Do not invent cosmetic ablation names. If a variant is a sweep, include the controlled method component in the name, e.g. "retrieval top_k=3" instead of just "Top-3 retrieval", and "LoRA rank=8" instead of just "rank_8".
 
 Return ONLY valid JSON."""
 
         # Retry loop: if blueprint validation fails, retry with error feedback
         max_planning_retries = 2
         last_validation_error = ""
+        review: dict[str, Any] = {}
         for planning_attempt in range(max_planning_retries + 1):
             retry_prompt = prompt
             if last_validation_error:
@@ -172,7 +196,27 @@ Return ONLY valid JSON."""
 
             try:
                 blueprint = ExperimentBlueprint.model_validate(result)
-                break  # Validation succeeded
+                review = await self._review_blueprint_with_llm(
+                    topic=topic,
+                    ideation_data=ideation_data,
+                    blueprint_data=blueprint.model_dump(mode="json"),
+                )
+                fatal_issues = review.get("fatal_issues", [])
+                if fatal_issues:
+                    last_validation_error = self._format_blueprint_review_feedback(review)
+                    if planning_attempt < max_planning_retries:
+                        logger.warning(
+                            "Planning attempt %d/%d LLM review requested retry: %s",
+                            planning_attempt + 1, max_planning_retries + 1,
+                            last_validation_error,
+                        )
+                        continue
+                    logger.error(
+                        "Blueprint LLM review still found fatal issues after %d attempts: %s",
+                        max_planning_retries + 1,
+                        last_validation_error,
+                    )
+                break  # Validation + LLM review succeeded or final attempt exhausted
             except Exception as exc:
                 last_validation_error = str(exc)
                 if planning_attempt < max_planning_retries:
@@ -196,14 +240,23 @@ Return ONLY valid JSON."""
         self.workspace.register_artifact(
             "experiment_blueprint", output_path, self.stage
         )
+        if isinstance(review, dict) and review:
+            review_path = self.workspace.write_json(
+                "logs/blueprint_review.json",
+                review,
+            )
+            self.workspace.register_artifact(
+                "blueprint_review", review_path, self.stage,
+            )
         primary_metrics = [m.name for m in blueprint.metrics if m.primary] or [m.name for m in blueprint.metrics[:3]]
         primary_metrics_text = ", ".join(primary_metrics)
         dataset_names = ", ".join(ds.name for ds in blueprint.datasets[:3])
+        proposed_method_name = self._get_proposed_method_name(blueprint)
         self.remember_context(
             MemoryType.PROJECT_CONTEXT,
-            f"Planning blueprint for {topic}: method={blueprint.proposed_method.name}, datasets={dataset_names}, primary metrics={primary_metrics_text}",
+            f"Planning blueprint for {topic}: method={proposed_method_name}, datasets={dataset_names}, primary metrics={primary_metrics_text}",
             importance=0.78,
-            tags=[topic, blueprint.proposed_method.name, "planning"],
+            tags=[topic, proposed_method_name, "planning"],
             source="experiment_blueprint",
             topic=topic,
         )
@@ -224,7 +277,7 @@ Return ONLY valid JSON."""
             source="experiment_blueprint",
         )
         planning_trace = (
-            f"Blueprint for {topic}: method={blueprint.proposed_method.name}; "
+            f"Blueprint for {topic}: method={proposed_method_name}; "
             f"datasets={[ds.name for ds in blueprint.datasets]}; "
             f"primary_metrics={primary_metrics}; "
             f"ablation_groups={len(blueprint.ablation_groups)}; "
@@ -235,11 +288,21 @@ Return ONLY valid JSON."""
             "planning",
             "planning_blueprint",
             planning_trace,
-            tags=[topic, blueprint.proposed_method.name, "planning", "blueprint"],
+            tags=[topic, proposed_method_name, "planning", "blueprint"],
             confidence=0.68,
         )
         logger.info("[%s] Blueprint generated: %s", self.stage.value, blueprint.title)
         return blueprint.model_dump(mode="json")
+
+    @staticmethod
+    def _get_proposed_method_name(blueprint: ExperimentBlueprint) -> str:
+        """Extract a stable proposed-method label from the validated blueprint."""
+        method = blueprint.proposed_method
+        if isinstance(method, dict):
+            name = method.get("name")
+            if isinstance(name, str) and name.strip():
+                return name.strip()
+        return "proposed_method"
 
     @staticmethod
     def _build_evidence_block(ideation_data: dict) -> str:
@@ -281,6 +344,78 @@ Return ONLY valid JSON."""
 
         lines.append("=== END EVIDENCE ===")
         return "\n".join(lines)
+
+    async def _review_blueprint_with_llm(
+        self,
+        *,
+        topic: str,
+        ideation_data: dict,
+        blueprint_data: dict,
+    ) -> dict[str, Any]:
+        """Run a lightweight LLM review for semantic blueprint validity.
+
+        Fail-open on API errors so the planning stage does not become brittle.
+        """
+        selected_hyp = ideation_data.get("selected_hypothesis", "")
+        user_prompt = (
+            f"Research topic: {topic}\n"
+            f"Selected hypothesis: {selected_hyp}\n\n"
+            "Decide whether this experiment blueprint has any execution-blocking or "
+            "evaluation-invalidating issues.\n\n"
+            "Ideation output:\n"
+            f"{json.dumps(ideation_data, ensure_ascii=False)[:6000]}\n\n"
+            "Experiment blueprint:\n"
+            f"{json.dumps(blueprint_data, ensure_ascii=False)[:12000]}"
+        )
+        try:
+            review = await self.generate_json(
+                BLUEPRINT_REVIEW_SYSTEM_PROMPT,
+                user_prompt,
+                stage_override=self.config.for_stage("review"),
+            )
+        except Exception as exc:
+            logger.warning("Blueprint LLM review failed, accepting schema-valid blueprint: %s", exc)
+            return {
+                "should_retry": False,
+                "fatal_issues": [],
+                "warnings": [{"type": "review_unavailable", "message": str(exc)}],
+                "summary": "LLM blueprint review unavailable; schema-valid blueprint accepted.",
+            }
+
+        if not isinstance(review, dict):
+            return {
+                "should_retry": False,
+                "fatal_issues": [],
+                "warnings": [{"type": "review_invalid", "message": f"Unexpected review type: {type(review).__name__}"}],
+                "summary": "LLM blueprint review returned invalid shape; schema-valid blueprint accepted.",
+            }
+
+        fatal_issues = review.get("fatal_issues")
+        warnings = review.get("warnings")
+        if not isinstance(fatal_issues, list):
+            review["fatal_issues"] = []
+        if not isinstance(warnings, list):
+            review["warnings"] = []
+        review["should_retry"] = bool(review.get("should_retry")) and bool(review["fatal_issues"])
+        review["summary"] = str(review.get("summary", "") or "").strip()
+        return review
+
+    @staticmethod
+    def _format_blueprint_review_feedback(review: dict[str, Any]) -> str:
+        fatal_issues = review.get("fatal_issues", [])
+        lines: list[str] = []
+        for idx, issue in enumerate(fatal_issues, start=1):
+            if not isinstance(issue, dict):
+                lines.append(f"{idx}. {issue}")
+                continue
+            issue_type = issue.get("type", "fatal_issue")
+            message = issue.get("message", "")
+            repair = issue.get("repair_instruction", "")
+            line = f"{idx}. [{issue_type}] {message}".strip()
+            if repair:
+                line += f" Fix: {repair}"
+            lines.append(line)
+        return "\n".join(lines) if lines else str(review.get("summary", "") or "LLM blueprint review requested retry.")
 
     @staticmethod
     def _coerce_blueprint_fields(data: dict) -> dict:

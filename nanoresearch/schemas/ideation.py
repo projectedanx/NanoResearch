@@ -158,3 +158,33 @@ class IdeationOutput(BaseModel):
         if isinstance(v, dict):
             return str(v)
         return v if isinstance(v, str) else str(v) if v is not None else ""
+
+    @field_validator("theme_clusters", "key_challenges", "future_directions", mode="before")
+    @classmethod
+    def _coerce_string_lists(cls, v):
+        if not isinstance(v, list):
+            return []
+
+        normalized: list[str] = []
+        for item in v:
+            if isinstance(item, str):
+                text = item.strip()
+            elif isinstance(item, dict):
+                text = str(
+                    item.get("theme")
+                    or item.get("challenge")
+                    or item.get("direction")
+                    or item.get("name")
+                    or item.get("title")
+                    or item.get("description")
+                    or ""
+                ).strip()
+                if not text:
+                    text = str(item).strip()
+            else:
+                text = str(item).strip() if item is not None else ""
+
+            if text:
+                normalized.append(text)
+
+        return normalized
