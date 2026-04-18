@@ -16,6 +16,73 @@ from nanoresearch.schemas.paper import PaperSkeleton, Section
 logger = logging.getLogger(__name__)
 
 
+# A-5f: section-level orphan self-check (H1 front-load).
+# Regex mirrors agents/review/consistency.py:147-149 so writing-side and
+# review-side detections agree on what "orphan" means.
+_A5F_LABEL_PATTERN = re.compile(r'\\label\{((?:fig|tab):[^}]+)\}')
+_A5F_REF_PATTERN = re.compile(r'\\(?:(?:auto|[Cc])?ref)\{((?:fig|tab):[^}]+)\}')
+
+def _check_section_orphans(content: str) -> list[str]:
+    """Return sorted list of ``fig:`` / ``tab:`` labels in ``content`` that
+    have no matching ``\\ref`` / ``\\autoref`` / ``\\Cref`` / ``\\cref`` in
+    the same string. Empty list means section is orphan-free."""
+    labels = set(_A5F_LABEL_PATTERN.findall(content))
+    refs = set(_A5F_REF_PATTERN.findall(content))
+    return sorted(labels - refs)
+
+
+def _build_orphan_retry_feedback(orphans: list[str]) -> str:
+    """Format a retry feedback block in the same style as _format_gate_feedback
+    so the LLM treats it as authoritative pivot instruction."""
+    joined = ", ".join(orphans)
+    return (
+        "\n\n=== ORPHAN RETRY FEEDBACK (MANDATORY FIX) ===\n"
+        f"Your previous draft left these labels without any \\ref in this section: {joined}.\n"
+        "Rewrite the section so every listed label is cited at least once "
+        "(use Figure~\\ref{fig:X} for figures, Table~\\ref{tab:Y} for tables).\n"
+        "Do not remove the labels; add refs in the prose instead.\n"
+        "=== END RETRY FEEDBACK ==="
+    )
+
+
+def _inject_orphan_ref_stub(content: str, orphans: list[str]) -> str:
+    """Fallback: append a minimal inline citation sentence for each still-orphan
+    label to the end of the section. Used in A-5f post-injection stage, where
+    `_verify_and_inject_tables` / `_place_section_figures` may have added a
+    `\\label` without a matching `\\ref` — we can't retry LLM generation
+    (it would discard injection), so we synthesize a safe reference stub.
+
+    Templates are deliberately generic (no fabricated captions). Tables get
+    Experiments-flavored wording since injected tables are almost always
+    main_results or ablation in the Experiments section."""
+    if not orphans:
+        return content
+    stubs = []
+    for label in orphans:
+        kind, _, key = label.partition(":")
+        if kind == "fig":
+            stubs.append(f"Figure~\\ref{{{label}}} visualizes this analysis.")
+        elif kind == "tab":
+            if "ablation" in key:
+                stubs.append(
+                    f"Table~\\ref{{{label}}} reports the ablation results "
+                    "discussed above."
+                )
+            elif "main" in key or "result" in key:
+                stubs.append(
+                    f"Table~\\ref{{{label}}} summarizes the main quantitative "
+                    "results."
+                )
+            else:
+                stubs.append(
+                    f"Table~\\ref{{{label}}} reports the corresponding "
+                    "quantitative results."
+                )
+    if not stubs:
+        return content
+    return content.rstrip() + "\n\n" + " ".join(stubs) + "\n"
+
+
 class _WritingAgentMixin:
     """Mixin — WritingAgent.run() and figure placement logic."""
 
@@ -254,6 +321,32 @@ class _WritingAgentMixin:
 
         # Per-section dedup
         self._dedup_section_figures(sections)
+
+        # A-5f/global: final safety net. Fallback placement (L274-L317
+        # above) and force-injection can append figure blocks to a section
+        # AFTER _gen_section has returned — which means the pre/post
+        # section-level orphan checks inside _gen_section never see these
+        # late injections. This loop re-scans every finalized section and
+        # applies the fallback stub for any surviving orphan. Day 2
+        # Experiments fig:main_results escape was caused by exactly this
+        # gap — LLM wasn't in the loop here, so only fallback stub can fix.
+        for sec in sections:
+            global_orphans = _check_section_orphans(sec.content)
+            if not global_orphans:
+                continue
+            self.log(
+                f"  [A-5f/global] {sec.label} post-assembly orphans: "
+                f"{global_orphans} — applying fallback stub"
+            )
+            sec.content = _inject_orphan_ref_stub(sec.content, global_orphans)
+            still = _check_section_orphans(sec.content)
+            if still:
+                logger.warning(
+                    "[A-5f/global] fallback failed to clear %s orphans %s",
+                    sec.label, still,
+                )
+            else:
+                self.log(f"  [A-5f/global] {sec.label} cleared via stub")
 
         # Step 5: Build skeleton
         skeleton = PaperSkeleton(
@@ -497,6 +590,21 @@ class _WritingAgentMixin:
 
         context_with_figs = (
             f"{section_ctx}\n\n"
+            "=== ORPHAN-FREE CHECKLIST (MANDATORY, SELF-VERIFY BEFORE EMITTING) ===\n"
+            "Before you finish this section, run this checklist on your own draft:\n"
+            "  1. List every `\\label{fig:X}` and `\\label{tab:Y}` you included.\n"
+            "  2. List every `\\ref{fig:*}` / `\\Cref{fig:*}` / `Table~\\ref{tab:*}` in your prose.\n"
+            "  3. Confirm each label in step 1 has AT LEAST ONE matching ref in step 2,\n"
+            "     within THIS SAME SECTION (not a later section).\n"
+            "If any label has no matching ref, rewrite the prose so every float is cited\n"
+            "at least once BEFORE emitting. Do not leave orphans for downstream fix-up.\n\n"
+            "Positive example:\n"
+            "  > As shown in Figure~\\ref{fig:overview}, our pipeline ...\n"
+            "  > \\begin{figure}... \\label{fig:overview} \\end{figure}\n"
+            "Negative example (DO NOT produce this):\n"
+            "  > \\begin{figure}... \\label{fig:overview} \\end{figure}\n"
+            "  > [no \\ref{fig:overview} anywhere in this section]  <-- orphan, rejected\n"
+            "=== END CHECKLIST ===\n\n"
             f"=== AVAILABLE FIGURES — YOU MUST CITE EACH ONE WITH \\ref{{fig:NAME}} ===\n"
             f"{fig_list_text}\n"
             f"{placed_note}"
@@ -535,6 +643,30 @@ class _WritingAgentMixin:
             context_with_figs, heading, instructions, prior_sections_summary
         )
 
+        # A-5f pre-injection stage: writing-source self-check + single retry.
+        # Detects \label{fig|tab:X} without a matching \ref that the LLM left in
+        # its own draft, and reruns once with targeted pivot feedback.
+        # Day 1 pipeline run revealed this stage alone is insufficient — helper
+        # functions below (_verify_and_inject_tables / _place_section_figures)
+        # can inject new \label env AFTER this check, creating orphans the pre
+        # stage never sees. Post-injection stage (after figure placement) picks
+        # those up via fallback stub.
+        pre_orphans = _check_section_orphans(content)
+        if pre_orphans:
+            self.log(f"  [A-5f/pre] {label} orphans: {pre_orphans} — retrying once")
+            retry_context = context_with_figs + _build_orphan_retry_feedback(pre_orphans)
+            content = await self._generate_section_with_convergence(
+                retry_context, heading, instructions, prior_sections_summary
+            )
+            remaining = _check_section_orphans(content)
+            if remaining:
+                logger.warning(
+                    "[A-5f/pre] %s still orphan after retry: %s — will retry via post stage",
+                    label, remaining,
+                )
+            else:
+                self.log(f"  [A-5f/pre] {label} orphan retry cleared")
+
         # Post-generation table verification for Experiments
         if label == "sec:experiments" and (
             grounding.main_table_latex or grounding.ablation_table_latex
@@ -566,6 +698,28 @@ class _WritingAgentMixin:
         content, placed_figures = self._place_section_figures(
             content, label, heading, figure_blocks, placed_figures,
         )
+
+        # A-5f post-injection stage: catch \label env introduced by
+        # _verify_and_inject_tables (e.g. tab:ablation when LLM cited it in
+        # prose wording but omitted the table body) or _place_section_figures
+        # (auto-placed figures the LLM didn't reference). Re-running the LLM
+        # here would discard those injections, so we synthesize a minimal
+        # \ref stub sentence instead via _inject_orphan_ref_stub.
+        post_orphans = _check_section_orphans(content)
+        if post_orphans:
+            self.log(
+                f"  [A-5f/post] {label} helper-injected orphans: {post_orphans} "
+                "— applying fallback stub"
+            )
+            content = _inject_orphan_ref_stub(content, post_orphans)
+            still = _check_section_orphans(content)
+            if still:
+                logger.warning(
+                    "[A-5f/post] fallback failed to clear %s orphans %s",
+                    label, still,
+                )
+            else:
+                self.log(f"  [A-5f/post] {label} cleared via stub")
 
         return Section(heading=heading, label=label, content=content), placed_figures
 
