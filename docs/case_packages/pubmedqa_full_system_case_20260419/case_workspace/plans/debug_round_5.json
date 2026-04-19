@@ -1,0 +1,23 @@
+{
+  "diagnosis": "Layer 2 (configuration/runtime handling), not a code crash: training completed successfully with exit code 0, but the job is flagged FAILED because STDERR is non-empty. The remaining STDERR output is from third-party Hugging Face/Transformers progress bars (e.g., \"Loading weights\", \"Writing model shards\") which default to STDERR during model load/save. This is a runtime-output handling issue, not an infrastructure or algorithm bug.",
+  "patches": [
+    {
+      "file": "train.py",
+      "old": "warnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\n\nimport numpy as np",
+      "new": "warnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\n\n# Keep Hugging Face progress bars off to avoid non-error STDERR noise in strict runners.\nos.environ.setdefault(\"HF_HUB_DISABLE_PROGRESS_BARS\", \"1\")\n\nimport numpy as np",
+      "description": "Disables HF Hub progress bars early (before model/tokenizer operations), preventing non-fatal progress output from polluting STDERR and causing false job failure."
+    },
+    {
+      "file": "train.py",
+      "old": "hf_logging.set_verbosity_error()\n",
+      "new": "hf_logging.set_verbosity_error()\nhf_logging.disable_progress_bar()\n\ntry:\n    from huggingface_hub.utils import disable_progress_bars as hf_disable_progress_bars\n    hf_disable_progress_bars()\nexcept Exception:\n    pass\n",
+      "description": "Explicitly disables Transformers and Hugging Face progress bars that otherwise write to STDERR during checkpoint load/save (e.g., \"Loading weights\", \"Writing model shards\")."
+    }
+  ],
+  "fixed_files": [
+    "train.py",
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 5
+}

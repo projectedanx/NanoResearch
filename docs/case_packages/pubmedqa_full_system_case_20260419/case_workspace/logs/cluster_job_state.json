@@ -1,0 +1,17 @@
+{
+  "assignment_id": "ai4science_journal_conservative::full_system::light_nlp_biomed_qa::round01",
+  "chain_id": "ai4science_journal_conservative::full_system::light_nlp_biomed_qa",
+  "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01",
+  "code_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment",
+  "outer_slurm_job_id": "8596374",
+  "child_slurm_job_id": "8602236",
+  "registered_at": "2026-04-18T18:43:42.502167+00:00",
+  "last_heartbeat_at": "2026-04-18T19:25:09.634410+00:00",
+  "last_seen_status": "COMPLETED",
+  "latest_activity_at": "2026-04-18T19:24:33.365127+00:00",
+  "latest_activity_path": "logs/slurm_8602236.out",
+  "source": "sbatch_submit",
+  "finalized_at": "2026-04-18T19:25:09.634419+00:00",
+  "terminal_status": "COMPLETED",
+  "termination_reason": "monitor_complete"
+}

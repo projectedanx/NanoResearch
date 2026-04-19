@@ -1,0 +1,16 @@
+{
+  "diagnosis": "Layer 2 configuration/runtime handling issue (not a training crash). The run finishes successfully (exit code 0), but the job is marked FAILED because STDERR is non-empty. Current STDERR is dominated by Hugging Face tokenizers fork warnings: `The current process just got forked...`. This happens because tokenizer parallelism is implicitly enabled before DataLoader worker forking. Since strict orchestration treats any STDERR output as failure, this warning stream is the root cause of the failed job status.",
+  "patches": [
+    {
+      "file": "train.py",
+      "old": "# Keep Hugging Face progress bars off to avoid non-error STDERR noise in strict runners.\nos.environ.setdefault(\"HF_HUB_DISABLE_PROGRESS_BARS\", \"1\")",
+      "new": "# Keep Hugging Face/tokenizers auxiliary output off to avoid non-error STDERR noise in strict runners.\nos.environ.setdefault(\"HF_HUB_DISABLE_PROGRESS_BARS\", \"1\")\nos.environ.setdefault(\"TOKENIZERS_PARALLELISM\", \"false\")",
+      "description": "Suppresses tokenizers fork-parallelism warnings by explicitly setting TOKENIZERS_PARALLELISM before tokenizer usage/forking, preventing false job failure from non-empty STDERR."
+    }
+  ],
+  "fixed_files": [
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 7
+}

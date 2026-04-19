@@ -1,0 +1,64 @@
+========================================
+Job ID: 8601198
+Node: SH-IDCA1404-10-140-54-106
+GPUs: 2
+Start: Sun Apr 19 03:00:54 CST 2026
+========================================
+Using Python: /mnt/petrelfs/xujinhang/anaconda3/bin/python
+Starting training...
+2026-04-19 03:01:07,228 | INFO | Starting training script with arguments:
+2026-04-19 03:01:07,229 | INFO | {
+  "run_name": "pubmedqa",
+  "mode": "cct",
+  "data_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+  "ori_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/ori_pqal.json",
+  "test_gt_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/test_ground_truth.json",
+  "model_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base",
+  "t5_model_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+  "results_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results",
+  "epochs": 5,
+  "batch_size": 16,
+  "eval_batch_size": 32,
+  "lr": 2e-05,
+  "weight_decay": 0.01,
+  "warmup_ratio": 0.06,
+  "max_length": 512,
+  "grad_accum_steps": 1,
+  "max_grad_norm": 1.0,
+  "lambda_consistency": 0.5,
+  "lambda_contrastive": 0.5,
+  "consistency_temperature": 1.0,
+  "contrastive_margin": 0.2,
+  "val_ratio": 0.2,
+  "max_train_samples": null,
+  "max_val_samples": null,
+  "max_test_samples": null,
+  "paraphrase_batch_size": 16,
+  "paraphrase_cache": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/paraphrase_cache_t5_small.json",
+  "seed": 42,
+  "num_workers": 2,
+  "fp16": true,
+  "cpu": false,
+  "dry_run": false,
+  "quick_eval": false,
+  "eval_only": false,
+  "metrics_json": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/metrics.json",
+  "metrics_csv": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/metrics.csv",
+  "best_ckpt_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/best_model"
+}
+2026-04-19 03:01:07,236 | INFO | Detected SLURM_JOB_ID=8601198
+2026-04-19 03:01:07,311 | INFO | Using device: cuda
+2026-04-19 03:01:07,316 | INFO | Loading local PubMedQA from /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/ori_pqal.json
+2026-04-19 03:01:07,331 | INFO | Split sizes -> train: 400, val: 100, test: 500
+2026-04-19 03:01:07,334 | WARNING | Skipping local model directory without checkpoint weights: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base
+2026-04-19 03:01:10,792 | INFO | Loaded model/tokenizer from HF id: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+2026-04-19 03:01:10,794 | ERROR | Unhandled error in train.py
+Traceback (most recent call last):
+  File "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py", line 973, in <module>
+    main()
+  File "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py", line 968, in main
+    train(args)
+  File "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py", line 663, in train
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+             ^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'torch.amp' has no attribute 'GradScaler'

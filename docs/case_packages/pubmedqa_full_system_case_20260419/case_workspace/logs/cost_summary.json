@@ -1,0 +1,49 @@
+{
+  "stages": {
+    "IDEATION": {
+      "total_tokens": 14904,
+      "prompt_tokens": 11748,
+      "completion_tokens": 3156,
+      "num_calls": 8,
+      "total_latency_ms": 150633.3
+    },
+    "PLANNING": {
+      "total_tokens": 11718,
+      "prompt_tokens": 4956,
+      "completion_tokens": 2917,
+      "num_calls": 3,
+      "total_latency_ms": 141018.6
+    },
+    "SETUP": {
+      "total_tokens": 8541,
+      "prompt_tokens": 6382,
+      "completion_tokens": 2159,
+      "num_calls": 2,
+      "total_latency_ms": 90536.0
+    },
+    "CODING": {
+      "total_tokens": 103240,
+      "prompt_tokens": 47452,
+      "completion_tokens": 55788,
+      "num_calls": 16,
+      "total_latency_ms": 1280609.7
+    },
+    "EXECUTION": {
+      "total_tokens": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "num_calls": 0,
+      "total_latency_ms": 0.0
+    },
+    "ANALYSIS": {
+      "total_tokens": 4689,
+      "prompt_tokens": 3822,
+      "completion_tokens": 867,
+      "num_calls": 1,
+      "total_latency_ms": 36218.6
+    }
+  },
+  "total_tokens": 143092,
+  "total_calls": 30,
+  "total_latency_ms": 1699016.2
+}

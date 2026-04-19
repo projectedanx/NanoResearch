@@ -1,0 +1,16 @@
+{
+  "diagnosis": "Layer 2 (configuration/runtime handling) failure. Training itself succeeded (exit code 0), but the job is marked FAILED because STDERR is non-empty. The remaining STDERR line is a PyTorch FutureWarning (`pynvml package is deprecated`). In `train.py`, warning suppression is configured *after* importing `torch`, so it is too late to catch warnings emitted during torch import/initialization.",
+  "patches": [
+    {
+      "file": "train.py",
+      "old": "import numpy as np\nimport torch\nimport torch.nn.functional as F\nfrom torch.utils.data import Dataset, DataLoader\nfrom tqdm import tqdm\nfrom transformers import (\n    AutoModelForSequenceClassification,\n    AutoTokenizer,\n    T5ForConditionalGeneration,\n    T5Tokenizer,\n    get_linear_schedule_with_warmup,\n)\nfrom transformers.utils import logging as hf_logging\n\ntry:\n    from datasets import load_dataset\nexcept Exception:\n    load_dataset = None\n\n# Suppress known non-fatal warnings that otherwise mark the whole job as FAILED\n# in strict STDERR-based runners.\nwarnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\nhf_logging.set_verbosity_error()\n",
+      "new": "# Suppress known non-fatal warnings *before importing torch*, because\n# torch can emit warnings at import time.\nwarnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\n\nimport numpy as np\nimport torch\nimport torch.nn.functional as F\nfrom torch.utils.data import Dataset, DataLoader\nfrom tqdm import tqdm\nfrom transformers import (\n    AutoModelForSequenceClassification,\n    AutoTokenizer,\n    T5ForConditionalGeneration,\n    T5Tokenizer,\n    get_linear_schedule_with_warmup,\n)\nfrom transformers.utils import logging as hf_logging\n\ntry:\n    from datasets import load_dataset\nexcept Exception:\n    load_dataset = None\n\nhf_logging.set_verbosity_error()\n",
+      "description": "Moves FutureWarning suppression ahead of `import torch` so the torch import-time `pynvml` warning is actually filtered, preventing false job failure from non-empty STDERR."
+    }
+  ],
+  "fixed_files": [
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 4
+}

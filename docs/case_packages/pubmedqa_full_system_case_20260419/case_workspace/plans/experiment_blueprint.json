@@ -1,0 +1,181 @@
+{
+  "title": "Contrastive Consistency Tuning (CCT): A Lightweight, Controlled Method for Improving Biomedical QA Discrimination on PubMedQA",
+  "hypothesis_ref": "HYP-001",
+  "datasets": [
+    {
+      "name": "PubMedQA",
+      "description": "A biomedical question-answering dataset consisting of yes/no/maybe questions derived from PubMed abstracts, with long answer contexts.",
+      "source_url": "https://pubmedqa.github.io/",
+      "size_info": "Train: 1,000 QA pairs, Validation: 500, Test: 500 (official hidden test set).",
+      "preprocessing_notes": "Use the official train/validation/test split. For training, generate one paraphrase per question using a cached T5-small paraphraser. No additional data augmentation."
+    }
+  ],
+  "baselines": [
+    {
+      "name": "BioBERT (fine-tuned)",
+      "description": "BioBERT (Bidirectional Encoder Representations from Transformers for Biomedical Text Mining) fine-tuned on PubMedQA for yes/no/maybe classification.",
+      "reference_paper_id": "BioBERT: a pre-trained biomedical language representation model for biomedical text mining (Lee et al., 2020)",
+      "expected_performance": {
+        "Accuracy": "N/A",
+        "Yes Accuracy": "N/A",
+        "No Accuracy": "N/A",
+        "Maybe Accuracy": "N/A"
+      },
+      "performance_provenance": {
+        "Accuracy": "No published PubMedQA accuracy found in the provided evidence.",
+        "Yes Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "No Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "Maybe Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence."
+      },
+      "is_projected": {
+        "Accuracy": false,
+        "Yes Accuracy": false,
+        "No Accuracy": false,
+        "Maybe Accuracy": false
+      }
+    },
+    {
+      "name": "PubMedBERT (fine-tuned)",
+      "description": "PubMedBERT, a BERT model pre-trained from scratch on PubMed abstracts and full-text articles, fine-tuned on PubMedQA.",
+      "reference_paper_id": "PubMedBERT: Domain-Specific Language Model Pretraining for Biomedical Natural Language Processing (Gu et al., 2020)",
+      "expected_performance": {
+        "Accuracy": "N/A",
+        "Yes Accuracy": "N/A",
+        "No Accuracy": "N/A",
+        "Maybe Accuracy": "N/A"
+      },
+      "performance_provenance": {
+        "Accuracy": "No published PubMedQA accuracy found in the provided evidence.",
+        "Yes Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "No Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "Maybe Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence."
+      },
+      "is_projected": {
+        "Accuracy": false,
+        "Yes Accuracy": false,
+        "No Accuracy": false,
+        "Maybe Accuracy": false
+      }
+    },
+    {
+      "name": "Instruction-tuned biomedical QA baseline",
+      "description": "A standard instruction-tuned model (e.g., PubMedBERT with instruction tuning) for biomedical QA, serving as a strong baseline.",
+      "reference_paper_id": "General paper on instruction tuning for biomedical QA (no specific paper ID provided)",
+      "expected_performance": {
+        "Accuracy": "N/A",
+        "Yes Accuracy": "N/A",
+        "No Accuracy": "N/A",
+        "Maybe Accuracy": "N/A"
+      },
+      "performance_provenance": {
+        "Accuracy": "No published PubMedQA accuracy found in the provided evidence.",
+        "Yes Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "No Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence.",
+        "Maybe Accuracy": "No published PubMedQA per-type accuracy found in the provided evidence."
+      },
+      "is_projected": {
+        "Accuracy": false,
+        "Yes Accuracy": false,
+        "No Accuracy": false,
+        "Maybe Accuracy": false
+      }
+    }
+  ],
+  "proposed_method": {
+    "name": "Contrastive Consistency Tuning (CCT)",
+    "description": "A lightweight fine-tuning approach that augments standard QA training with a contrastive auxiliary loss. The loss encourages the model to produce similar representations for semantically equivalent question paraphrases (positive pairs) while distancing them from representations for incorrect answers or irrelevant questions (negative pairs). This is designed to improve discrimination, especially on ambiguous 'maybe' questions.",
+    "key_components": [
+      "PubMedBERT-base encoder",
+      "Standard classification head (CLS token)",
+      "Contrastive loss module (cosine similarity based)",
+      "Lightweight T5-small paraphraser for positive pair generation",
+      "Joint loss weighting (λ parameter)"
+    ],
+    "architecture": "PubMedBERT-base (microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext) with a linear classification head on the [CLS] token. During training, each question is paired with a generated paraphrase (positive) and in-batch/hard negatives. The total loss is L_total = L_CE + λ * L_contrastive, where L_CE is cross-entropy for yes/no/maybe classification and L_contrastive is a contrastive loss (e.g., InfoNCE) computed on the [CLS] representations."
+  },
+  "metrics": [
+    {
+      "name": "Accuracy",
+      "description": "Overall classification accuracy on the PubMedQA test set (yes/no/maybe).",
+      "higher_is_better": true,
+      "primary": true
+    },
+    {
+      "name": "Yes Accuracy",
+      "description": "Accuracy on questions with 'yes' ground truth answers.",
+      "higher_is_better": true,
+      "primary": false
+    },
+    {
+      "name": "No Accuracy",
+      "description": "Accuracy on questions with 'no' ground truth answers.",
+      "higher_is_better": true,
+      "primary": false
+    },
+    {
+      "name": "Maybe Accuracy",
+      "description": "Accuracy on questions with 'maybe' ground truth answers.",
+      "higher_is_better": true,
+      "primary": false
+    }
+  ],
+  "ablation_groups": [
+    {
+      "group_name": "Contrastive Loss Ablations",
+      "description": "Variants that isolate the contribution of the contrastive loss and its components.",
+      "variants": [
+        {
+          "name": "Baseline: Vanilla PubMedBERT",
+          "description": "PubMedBERT fine-tuned on PubMedQA with only cross-entropy loss (no contrastive component). This serves as the primary baseline.",
+          "controlled_component": "Contrastive loss module"
+        },
+        {
+          "name": "Ablation: CCT with random negatives only",
+          "description": "CCT where the contrastive loss uses only random in-batch negatives (no hard negatives from incorrect answers). Tests if hard negatives are necessary.",
+          "controlled_component": "Contrastive loss module (negative sampling strategy)"
+        },
+        {
+          "name": "Ablation: CCT with duplicate question (no paraphrase)",
+          "description": "CCT where the positive pair is the original question repeated instead of a paraphrase. Tests if the effect is due to semantic consistency or mere duplication.",
+          "controlled_component": "Lightweight T5-small paraphraser"
+        },
+        {
+          "name": "Proposed: Full CCT",
+          "description": "Full CCT with paraphrase-based positive pairs and in-batch + hard negatives. Expected to show the best performance, especially on 'maybe' questions.",
+          "controlled_component": "All key components"
+        }
+      ]
+    },
+    {
+      "group_name": "Loss Weighting Sweep",
+      "description": "Variants that test the effect of the contrastive loss weight (λ).",
+      "variants": [
+        {
+          "name": "CCT λ=0.05",
+          "description": "CCT with a lower contrastive loss weight (λ=0.05). Tests sensitivity to λ.",
+          "controlled_component": "Joint loss weighting (λ parameter)"
+        },
+        {
+          "name": "CCT λ=0.1 (default)",
+          "description": "CCT with the default contrastive loss weight (λ=0.1).",
+          "controlled_component": "Joint loss weighting (λ parameter)"
+        },
+        {
+          "name": "CCT λ=0.2",
+          "description": "CCT with a higher contrastive loss weight (λ=0.2). Tests if stronger contrastive signal helps or harms.",
+          "controlled_component": "Joint loss weighting (λ parameter)"
+        }
+      ]
+    }
+  ],
+  "compute_requirements": {
+    "gpu_type": "A100 80GB",
+    "num_gpus": 1,
+    "estimated_hours": 120.0,
+    "memory_gb": 80.0,
+    "notes": ""
+  },
+  "evidence_summary": "No quantitative evidence was provided in the 'PUBLISHED QUANTITATIVE EVIDENCE' section. Therefore, all baseline expected_performance values are set to 'N/A'. The proposed method's performance is projected as a range improvement over the best baseline (to be determined experimentally).",
+  "data_provenance_note": "Baseline performance numbers are not available from the provided evidence and are marked as 'N/A'. All improvements for the proposed method are projected ranges (e.g., '5-10% improvement over best baseline on Maybe Accuracy') and should be validated through experimentation. This ensures conservative, evidence-grounded claims.",
+  "idea_ref": "HYP-001"
+}

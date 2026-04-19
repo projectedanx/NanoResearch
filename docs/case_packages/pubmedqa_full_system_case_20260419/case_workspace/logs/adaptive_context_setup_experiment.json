@@ -1,0 +1,140 @@
+{
+  "task_type": "experiment",
+  "topic": "Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+  "tags": [
+    "setup",
+    "repo_analysis",
+    "code_reuse"
+  ],
+  "profile_context": "=== USER PROFILE ===\nArchetype: ai4science_journal\nMethod preference: Prefer conservative, scientifically grounded methods with careful controls and restrained claims.\nResource budget: 1xA100 80GB, 5 days\nCritical feedback preference: Scientific plausibility, evidence gaps, or overstated generality.",
+  "router_policy": {
+    "selected_research_memory_ids": [
+      "rmem-343f4f94350a53"
+    ],
+    "selected_memory_ids": [
+      "mem-0c237d680c4c",
+      "mem-6faecb49297b"
+    ],
+    "router_input": {
+      "task": "Produce the hindsight-improved router decision after feedback.",
+      "persona_id": "ai4science_journal_conservative",
+      "round_id": "attempt-01",
+      "subsystem": "code_implementation",
+      "turn_id": "experiment-0",
+      "profile_snapshot": {
+        "archetype_seed": "ai4science_journal",
+        "research_profile": {
+          "domain": "NLP",
+          "method_preference": "Prefer conservative, scientifically grounded methods with careful controls and restrained claims.",
+          "risk_preference": "low",
+          "baseline_ablation_strictness": "high"
+        },
+        "resource_profile": {
+          "gpu_budget": "1xA100 80GB",
+          "wall_clock_budget": "5 days",
+          "feasibility_bias": "Prefer reproducible designs with explicit assumptions and controlled compute."
+        },
+        "writing_profile": {
+          "tone": "highly restrained",
+          "claim_strength": "conservative",
+          "section_organization": "Journal-style with dense evidence and careful limitations."
+        },
+        "publication_profile": {
+          "venue_style": "Nature/Springer journal",
+          "latex_template_preference": "nature_springer",
+          "figure_style": "composite scientific figure",
+          "caption_style": "self-contained dense"
+        },
+        "interaction_profile": {
+          "priority_feedback": "Scientific plausibility, evidence gaps, or overstated generality.",
+          "unacceptable_errors": "Overclaiming biological/physical conclusions or under-specifying data provenance."
+        },
+        "profile_id": "persona-ai4science_journal_conservative",
+        "version": 1,
+        "created_at": "2026-04-18T17:13:23.236945+00:00",
+        "updated_at": "2026-04-18T17:13:23.237002+00:00",
+        "router_hints": {
+          "prefer_profile_over_sparse_memory": true,
+          "writing_prompt_focus": {
+            "tone": "highly restrained",
+            "claim_strength": "conservative",
+            "venue_style": "Nature/Springer journal",
+            "figure_style": "composite scientific figure",
+            "caption_style": "self-contained dense"
+          },
+          "planning_prompt_focus": {
+            "resource_budget": "1xA100 80GB",
+            "feasibility_bias": "Prefer reproducible designs with explicit assumptions and controlled compute."
+          }
+        },
+        "persona_brief": "AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.",
+        "persona_id": "ai4science_journal_conservative"
+      },
+      "task_spec": {
+        "task_id": "attempt-01",
+        "topic": "Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+        "task_brief": "Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem St ...",
+        "stage_focus": "experiment"
+      },
+      "x": {
+        "candidate_memory": [
+          {
+            "memory_id": "mem-0c237d680c4c",
+            "memory_type": "decision_history",
+            "content": "Key gaps for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical ...",
+            "source": "ideation_output"
+          },
+          {
+            "memory_id": "mem-3885b840d8e0",
+            "memory_type": "project_context",
+            "content": "Ideation for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical ...",
+            "source": "ideation_output"
+          },
+          {
+            "memory_id": "mem-6faecb49297b",
+            "memory_type": "project_context",
+            "content": "Planning blueprint for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a ...",
+            "source": "experiment_blueprint"
+          },
+          {
+            "memory_id": "mem-8cc03cc97e8f",
+            "memory_type": "decision_history",
+            "content": "Planning constraints for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design ...",
+            "source": "experiment_blueprint"
+          },
+          {
+            "memory_id": "rmem-e03cc29cad67e5",
+            "memory_type": "promising_direction",
+            "content": "Promising direction for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design ...",
+            "source": "planning"
+          },
+          {
+            "memory_id": "rmem-343f4f94350a53",
+            "memory_type": "promising_direction",
+            "content": "Promising direction for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design ...",
+            "source": "ideation"
+          }
+        ],
+        "candidate_skills": [],
+        "user_request": "Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem St ...",
+        "workspace_context": "profile: === USER PROFILE === Archetype: ai4science_journal Method preference: Prefer conservative, scientifically grounded methods with careful controls and restrained claims. Resource budget: 1xA100 80GB, 5 days Critical feedback preference: Scientific plausibility, evidence gaps, or overstated generality. | blueprint: {\"title\": \"Contrastive Consistency Tuning (CCT): A Lightweight, Controlled Method for Improving Biomedical QA Discrimination on PubMedQA\", \"hypothesis_ref\": \"HYP-001\", \"datasets\": [{\"name\": \"PubMedQA\", \"description\": \"A biomedical question-answering dataset consisting of yes/no/maybe questions derived from PubMed abstracts, with long answer contexts.\", \"source_url\": \"https://pubmedqa.github.io/\", \"size_info\": \"Train: ... | current_context: [{\"name\": \"pubmedqa\", \"files\": [\"/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/pubmedqa/get_human_performance.py\", \"/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa- ..."
+      }
+    },
+    "router_decision": {
+      "selected_memory_ids": [
+        "mem-0c237d680c4c",
+        "mem-6faecb49297b",
+        "rmem-343f4f94350a53"
+      ],
+      "selected_skill_ids": [],
+      "prompt_plan": "Implement contrastive consistency tuning with ablation on PubMedQA, ensuring reproducibility and controlled compute.",
+      "update_memory": "Stabilize memory for CCT method with ablation controls and PubMedQA specifics.",
+      "update_skill": null,
+      "backend": "local:/mnt/dhwfile/raise/user/xujinhang/nanoresearch/tmp/router_sdpo_offpolicy_runs/per_persona/ai4science_journal_conservative/router_sdpo_offpolicy_persona_ai4science_journal_conservative_20260410_230722/train/epoch-02",
+      "raw_response": "{\n  \"selected_memory_ids\": [\"mem-0c237d680c4c\", \"mem-6faecb49297b\", \"rmem-343f4f94350a53\"],\n  \"selected_skill_ids\": [],\n  \"prompt_plan\": \"Implement contrastive consistency tuning with ablation on PubMedQA, ensuring reproducibility and controlled compute.\",\n  \"update_memory\": \"Stabilize memory for CCT method with ablation controls and PubMedQA specifics.\",\n  \"update_skill\": \"\"\n}"
+    },
+    "candidate_memory_count": 6,
+    "candidate_skill_count": 0
+  },
+  "combined_context": "=== USER PROFILE ===\nArchetype: ai4science_journal\nMethod preference: Prefer conservative, scientifically grounded methods with careful controls and restrained claims.\nResource budget: 1xA100 80GB, 5 days\nCritical feedback preference: Scientific plausibility, evidence gaps, or overstated generality.\n\n\n\n=== STRATEGY MEMORY ===\nUse these router-selected experiment strategies to improve data handling, preflight validation, and training stability before making new implementation choices.\n- (promising_direction) [ideation] Promising direction for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubM... | conditions: topic=Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome., paper_mode=original_research, source_stage=ideation | evidence: Selection rationale: HYP-001 directly addresses all three identified gaps with a method that is lightweight, rigorously controllable, and focused on a key challenge (ambiguous questions). It aligns perfectly with the user's preference for conservative, scientifically grounded approaches and offers clear novelty agai... | trajectory: top ideas: Augmenting standard instruction tuning with a lightweight contrastive loss that separates correct from plausible-but-incorrect answer representations will improve Pub...; gaps: Lack of lightweight, controlled methods that isolate the effect of contrastive learning for biomedical QA discrimination, especially on ambiguous questions. Most papers co... | uncertainty: Promising directions summarize top-ranked candidates, but should still be revalidated under new budgets or datasets.\n=== END STRATEGY MEMORY ===\n\n\n\n\n=== LONG-TERM RESEARCH MEMORY ===\nUse these router-selected durable preferences, prior decisions, and project facts when making choices.\n- (decision_history) [ideation_output] Key gaps for Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.: Lack of lightweight, controlled methods that isolate the effect of contrastive learning for biomedical QA discrimination, especially on ambiguous questions. Most papers combine contrastive loss with other complex components (e.g., retrieval, multi-task learning) without ablations to attribute gains.; Insufficient reproducibility and transparency in experimental designs for biomedical QA, with many papers omitting detailed ablation studies, fixed random seeds, or complete hyperparameter settings.; Underexploration of improving model discrimination on ambiguous ('maybe') questions in PubMedQA, with most methods focusing on overall accuracy rather than per-question-type analysis.\n- (project_context) [experiment_blueprint] Planning blueprint for Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.: method=Contrastive Consistency Tuning (CCT), datasets=PubMedQA, primary metrics=Accuracy\n=== END LONG-TERM RESEARCH MEMORY ===\n\n\n\n\n=== SDPO ROUTER PROMPT PLAN ===\nImplement contrastive consistency tuning with ablation on PubMedQA, ensuring reproducibility and controlled compute.\n=== END SDPO ROUTER PROMPT PLAN ===\n"
+}

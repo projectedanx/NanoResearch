@@ -1,0 +1,16 @@
+{
+  "diagnosis": "This is a Layer 2 configuration/runtime-handling failure: training completed successfully (Exit code: 0), but the job is marked FAILED because STDERR is non-empty. The remaining STDERR line is a non-fatal FutureWarning from `huggingface_hub.file_download` about deprecated `resume_download`. In this pipeline, any STDERR output is treated as failure, so this warning must be filtered at runtime.",
+  "patches": [
+    {
+      "file": "train.py",
+      "old": "# Suppress known non-fatal warnings *before importing torch*, because\n# torch can emit warnings at import time.\nwarnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\n",
+      "new": "# Suppress known non-fatal warnings *before importing torch*, because\n# torch can emit warnings at import time.\nwarnings.filterwarnings(\n    \"ignore\",\n    message=r\"The pynvml package is deprecated\\. Please install nvidia-ml-py instead\\.\",\n    category=FutureWarning,\n)\nwarnings.filterwarnings(\n    \"ignore\",\n    message=r\"`resume_download` is deprecated and will be removed in version 1\\.0\\.0\\.\",\n    category=FutureWarning,\n    module=r\"huggingface_hub\\.file_download\",\n)\n",
+      "description": "Filters the remaining Hugging Face Hub deprecation warning that is currently written to STDERR and causing false job failure despite successful training."
+    }
+  ],
+  "fixed_files": [
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 8
+}

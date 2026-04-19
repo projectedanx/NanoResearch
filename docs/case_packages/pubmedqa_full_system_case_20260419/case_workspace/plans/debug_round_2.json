@@ -1,0 +1,65 @@
+{
+  "diagnosis": "Layer 3 (code) issue. The training itself completed successfully (exit code 0), but the job is flagged as FAILED because `train.py` writes non-error output to STDERR: (1) `tqdm` progress bars default to STDERR, and (2) `datetime.utcnow()` triggers a Python 3.12 deprecation warning on STDERR. In this environment/pipeline, non-empty STDERR is treated as failure even when training succeeds.",
+  "patches": [
+    {
+      "file": "train.py",
+      "old": "from datetime import datetime",
+      "new": "from datetime import datetime, UTC",
+      "description": "Enable timezone-aware UTC timestamps without deprecated `utcnow()`."
+    },
+    {
+      "file": "train.py",
+      "old": "            \"timestamp\": datetime.utcnow().isoformat(),",
+      "new": "            \"timestamp\": datetime.now(UTC).isoformat(),",
+      "description": "Remove deprecated datetime usage in eval-only payload to prevent DeprecationWarning on STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "            \"timestamp\": datetime.utcnow().isoformat(),",
+      "new": "            \"timestamp\": datetime.now(UTC).isoformat(),",
+      "description": "Remove deprecated datetime usage in per-epoch metrics payload to prevent DeprecationWarning on STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "        \"timestamp\": datetime.utcnow().isoformat(),",
+      "new": "        \"timestamp\": datetime.now(UTC).isoformat(),",
+      "description": "Remove deprecated datetime usage in final metrics payload to prevent DeprecationWarning on STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "        for i in tqdm(range(0, len(needed), batch_size), desc=\"Paraphrasing\"):",
+      "new": "        for i in tqdm(range(0, len(needed), batch_size), desc=\"Paraphrasing\", file=sys.stdout):",
+      "description": "Route paraphrasing progress bar to STDOUT instead of STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "        for bi, batch in enumerate(tqdm(dataloader, desc=\"Evaluating\", leave=False)):",
+      "new": "        for bi, batch in enumerate(tqdm(dataloader, desc=\"Evaluating\", leave=False, file=sys.stdout)):",
+      "description": "Route evaluation progress bar to STDOUT instead of STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "        pbar = tqdm(train_loader, desc=f\"Epoch {epoch}/{args.epochs}\")",
+      "new": "        pbar = tqdm(train_loader, desc=f\"Epoch {epoch}/{args.epochs}\", file=sys.stdout)",
+      "description": "Route training epoch progress bar to STDOUT instead of STDERR."
+    },
+    {
+      "file": "train.py",
+      "old": "            for batch in tqdm(test_loader, desc=\"Writing test predictions\", leave=False):",
+      "new": "            for batch in tqdm(test_loader, desc=\"Writing test predictions\", leave=False, file=sys.stdout):",
+      "description": "Route prediction-writing progress bar to STDOUT instead of STDERR."
+    }
+  ],
+  "fixed_files": [
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 2
+}

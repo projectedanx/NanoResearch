@@ -1,0 +1,241 @@
+{
+  "search_plan": {
+    "github_queries": [
+      "PubMedQA dataset download",
+      "PubMedBERT fine-tuning example",
+      "contrastive loss biomedical QA",
+      "lightweight T5 paraphraser",
+      "BioBERT PubMedQA baseline"
+    ],
+    "target_repos": [
+      {
+        "owner": "pubmedqa",
+        "repo": "pubmedqa",
+        "reason": "Official repository for PubMedQA dataset, containing scripts for downloading and preprocessing the dataset, which is essential for the experiment."
+      },
+      {
+        "owner": "microsoft",
+        "repo": "BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+        "reason": "HuggingFace model repository for PubMedBERT, the primary encoder to be used in the experiment. This repo provides model weights and configuration."
+      },
+      {
+        "owner": "dmis-lab",
+        "repo": "biobert",
+        "reason": "Repository for BioBERT, a key baseline model. Useful for comparing performance and ensuring reproducibility of baseline results."
+      }
+    ],
+    "pretrained_models": [
+      {
+        "name": "PubMedBERT-base",
+        "source": "huggingface",
+        "model_id": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+        "download_weights": true,
+        "reason": "Primary encoder for the Contrastive Consistency Tuning (CCT) method. It is a biomedical-specific BERT model pretrained on PubMed abstracts and full-text articles, suitable for PubMedQA."
+      },
+      {
+        "name": "T5-small",
+        "source": "huggingface",
+        "model_id": "t5-small",
+        "download_weights": true,
+        "reason": "Lightweight paraphraser for generating positive question paraphrases during training, as specified in the method. It is computationally efficient and fits the modest budget."
+      },
+      {
+        "name": "BioBERT",
+        "source": "huggingface",
+        "model_id": "dmis-lab/biobert-base-cased-v1.2",
+        "download_weights": true,
+        "reason": "Baseline model for comparison. BioBERT is a widely used biomedical language model, and including it ensures fair evaluation against established methods."
+      }
+    ],
+    "datasets": [
+      {
+        "name": "PubMedQA",
+        "url": "https://github.com/pubmedqa/pubmedqa",
+        "filename": "pubmedqa_dataset.zip",
+        "reason": "Primary evaluation dataset for the experiment. The GitHub repo contains the dataset files and preprocessing scripts. Since a direct download URL is not provided, cloning this repo will allow automatic extraction of the dataset via instructions in the README (e.g., using provided download scripts)."
+      }
+    ]
+  },
+  "cloned_repos": [
+    {
+      "name": "pubmedqa",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/pubmedqa",
+      "source": "https://github.com/pubmedqa/pubmedqa.git"
+    },
+    {
+      "name": "biobert",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/biobert",
+      "source": "https://github.com/dmis-lab/biobert.git"
+    }
+  ],
+  "code_analysis": {
+    "summary": "The cloned repositories provide foundational components for implementing Contrastive Consistency Tuning (CCT) on PubMedQA. The 'pubmedqa' repo offers essential dataset handling, preprocessing, and evaluation scripts, while 'biobert' provides a robust BERT-based training pipeline for classification tasks. However, neither repo directly implements contrastive learning or question paraphrasing. The biobert repo is the most suitable base due to its mature fine-tuning framework (run_classifier.py), but significant extensions are needed for CCT, including a contrastive loss module, paraphraser integration, and joint training logic. The user's conservative, reproducible requirements align with leveraging these established codebases and adding well-controlled, ablatable components.",
+    "best_base_repo": "biobert",
+    "key_files": [
+      {
+        "repo": "pubmedqa",
+        "file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/pubmedqa/preprocess/split_dataset.py",
+        "purpose": "Splits PubMedQA datasets (PQA-A, PQA-L) into train/dev/test sets.",
+        "reuse_plan": "Use directly to prepare data splits for training and evaluation. Ensure compatibility with biobert's input format (e.g., convert to TSV)."
+      },
+      {
+        "repo": "pubmedqa",
+        "file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/pubmedqa/evaluation.py",
+        "purpose": "Evaluates model predictions on PubMedQA, computing accuracy and per-answer-type metrics.",
+        "reuse_plan": "Integrate as the evaluation script for final testing and ablation analysis. It supports 'yes'/'no'/'maybe' classification, crucial for analyzing ambiguous questions."
+      },
+      {
+        "repo": "biobert",
+        "file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/biobert/run_classifier.py",
+        "purpose": "Main fine-tuning script for BERT-based classification tasks, handling data loading, training, and evaluation.",
+        "reuse_plan": "Extend to support CCT: modify to load PubMedBERT, add contrastive loss computation, integrate paraphraser for positive pairs, and implement joint loss (CE + λ * contrastive). Keep existing hyperparameter and logging structure for reproducibility."
+      },
+      {
+        "repo": "biobert",
+        "file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/biobert/modeling.py",
+        "purpose": "Contains BERT model architecture (BertModel) and classification heads.",
+        "reuse_plan": "Use BertModel from here as the encoder backbone. May need to modify to extract CLS embeddings for contrastive loss and ensure compatibility with PubMedBERT weights."
+      },
+      {
+        "repo": "biobert",
+        "file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/repos/biobert/optimization.py",
+        "purpose": "Implements optimization utilities (e.g., AdamW with linear warmup).",
+        "reuse_plan": "Reuse directly for training stability, aligning with standard BERT fine-tuning practices."
+      }
+    ],
+    "reusable_components": [
+      {
+        "name": "PubMedQA Data Loader",
+        "source_file": "pubmedqa/preprocess/split_dataset.py and evaluation.py",
+        "description": "Scripts to load and split PubMedQA datasets, with evaluation for accuracy and per-class metrics.",
+        "modifications_needed": "Adapt to output data in a format compatible with biobert's input processors (e.g., create a DataProcessor class for PubMedQA). Add support for generating paraphrased questions via T5-small."
+      },
+      {
+        "name": "BERT Fine-Tuning Pipeline",
+        "source_file": "biobert/run_classifier.py",
+        "description": "Complete training/evaluation loop for classification, including gradient accumulation, logging, and checkpointing.",
+        "modifications_needed": "Extend to compute contrastive loss using CLS embeddings. Add logic to generate positive pairs (paraphrases) and negative pairs (incorrect answers) during batch construction. Incorporate λ parameter for joint loss weighting."
+      },
+      {
+        "name": "BERT Model Encoder",
+        "source_file": "biobert/modeling.py",
+        "description": "BERT model implementation with pooling and classification heads.",
+        "modifications_needed": "Load PubMedBERT-base weights. Ensure the model can return CLS embeddings for contrastive loss without disrupting the existing classification head."
+      },
+      {
+        "name": "Optimization and Training Utilities",
+        "source_file": "biobert/optimization.py",
+        "description": "AdamW optimizer with warmup and linear decay.",
+        "modifications_needed": "None; use as-is for consistent optimization."
+      }
+    ],
+    "missing_components": [
+      "Contrastive loss module (e.g., cosine similarity-based InfoNCE loss)",
+      "T5-small paraphraser for generating positive question pairs",
+      "Data augmentation pipeline for creating positive/negative pairs (paraphrases, incorrect answers)",
+      "Joint training script integrating CE loss and contrastive loss with adjustable λ",
+      "Ablation testing utilities (e.g., scripts to train with/without contrastive loss, vary λ)",
+      "PubMedBERT-specific model loading (weights from Hugging Face)",
+      "Enhanced logging for tracking contrastive loss and per-question-type accuracy during training"
+    ],
+    "recommended_approach": "Build upon biobert's run_classifier.py as the core training framework. Implement a new DataProcessor for PubMedQA that loads original data and generates paraphrases using T5-small (lightweight). Extend the model to compute CLS embeddings and add a contrastive loss module. Modify the training loop to compute joint loss = CE_loss + λ * contrastive_loss. Ensure full reproducibility by fixing random seeds, logging all hyperparameters (including λ), and providing clear ablation scripts. Use the pubmedqa evaluation.py for final testing, with emphasis on accuracy on 'maybe' questions. Given the compute budget (1xA100, 5 days), keep batch sizes moderate and use PubMedBERT-base for efficiency."
+  },
+  "downloaded_resources": [
+    {
+      "name": "PubMedBERT-base",
+      "type": "model",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base",
+      "source": "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext",
+      "status": "full",
+      "cached": true,
+      "size_bytes": 1760043643,
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/PubMedBERT-base",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "T5-small",
+      "type": "model",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+      "source": "t5-small",
+      "status": "full",
+      "cached": true,
+      "size_bytes": 2246975841,
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/T5-small",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "BioBERT",
+      "type": "model",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/BioBERT",
+      "source": "dmis-lab/biobert-base-cased-v1.2",
+      "status": "full",
+      "cached": true,
+      "size_bytes": 866749568,
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/BioBERT",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/BioBERT",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "PubMedQA",
+      "type": "dataset",
+      "path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+      "status": "downloaded",
+      "source": "github.com/pubmedqa/pubmedqa",
+      "files": [
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/test_ground_truth.json",
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/ori_pqal.json"
+      ],
+      "strategy": "repo_data_files",
+      "size_bytes": 2596201,
+      "cache_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+      "workspace_files": [
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/test_ground_truth.json",
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/ori_pqal.json"
+      ],
+      "staging_strategy": "hardlink"
+    }
+  ],
+  "datasets_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+  "data_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+  "models_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models",
+  "cache_data_dir": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/data",
+  "cache_models_dir": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models",
+  "workspace_resource_aliases": [
+    {
+      "name": "PubMedBERT-base",
+      "type": "model",
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/PubMedBERT-base",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "T5-small",
+      "type": "model",
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/T5-small",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "BioBERT",
+      "type": "model",
+      "cache_path": "/mnt/petrelfs/xujinhang/.nanoresearch/cache/models/BioBERT",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/BioBERT",
+      "staging_strategy": "symlink"
+    },
+    {
+      "name": "PubMedQA",
+      "type": "dataset",
+      "cache_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa",
+      "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+      "workspace_files": [
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/test_ground_truth.json",
+        "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/ori_pqal.json"
+      ],
+      "staging_strategy": "hardlink"
+    }
+  ],
+  "resource_download_enabled": true
+}

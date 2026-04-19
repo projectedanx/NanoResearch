@@ -1,0 +1,81 @@
+{
+  "code_plan": {
+    "project_name": "pubmedqa_cct_pubmedbert",
+    "description": "Runnable PubMedQA yes/no/maybe classification with PubMedBERT and Contrastive Consistency Tuning (CCT) plus ablations.",
+    "python_version": "3.10",
+    "dependencies": [
+      "torch>=2.1.0",
+      "transformers>=4.40.0",
+      "datasets>=2.18.0",
+      "numpy>=1.24.0",
+      "tqdm>=4.66.0",
+      "Pillow",
+      "requests"
+    ],
+    "files": [
+      {
+        "path": "config.py",
+        "description": "Default paths and hyperparameters (all absolute paths).",
+        "is_entrypoint": false
+      },
+      {
+        "path": "model.py",
+        "description": "PubMedBERT classifier returning logits + CLS embedding for CE and contrastive losses.",
+        "is_entrypoint": false
+      },
+      {
+        "path": "dataset.py",
+        "description": "PubMedQA loading from exact local path, preprocessing, T5 paraphrase caching, and collator.",
+        "is_entrypoint": false
+      },
+      {
+        "path": "evaluate.py",
+        "description": "Validation/test evaluation with overall accuracy and per-class accuracy plus prediction dumping.",
+        "is_entrypoint": false
+      },
+      {
+        "path": "train.py",
+        "description": "Main script with argparse, CCT/ablation training, checkpointing, JSON+CSV logging, --dry-run and --quick-eval, runnable on local or SLURM.",
+        "is_entrypoint": true
+      },
+      {
+        "path": "run_all_ablation.sh",
+        "description": "Runs full CCT and two ablations with matched hyperparameters.",
+        "is_entrypoint": false
+      },
+      {
+        "path": "slurm_train.sh",
+        "description": "Example SLURM script for 1xA100 execution.",
+        "is_entrypoint": false
+      }
+    ],
+    "train_command": "python train.py --run_name pubmedqa --mode cct --epochs 5 --batch_size 16 --lr 2e-5 --lambda_contrastive 0.5 --fp16",
+    "expected_output_files": [
+      "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results/pubmedqa_cct/<run_name_mode_timestamp>/metrics.json",
+      "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results/pubmedqa_cct/<run_name_mode_timestamp>/training_log.csv",
+      "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results/pubmedqa_cct/checkpoints/best_pubmedqa_cct.pt"
+    ]
+  },
+  "generated_files": [
+    "config.py",
+    "model.py",
+    "dataset.py",
+    "evaluate.py",
+    "train.py",
+    "run_all_ablation.sh",
+    "slurm_train.sh",
+    "nanoresearch_runner.py",
+    "nanoresearch_runner.json",
+    "run_train.slurm",
+    "requirements.txt",
+    "environment.yml"
+  ],
+  "code_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment",
+  "slurm_script": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/run_train.slurm",
+  "train_command": "python nanoresearch_runner.py",
+  "entry_train_command": "python train.py --run_name pubmedqa --mode cct --epochs 5 --batch_size 16 --lr 2e-5 --lambda_contrastive 0.5 --fp16",
+  "runner_script": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/nanoresearch_runner.py",
+  "runner_config": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/nanoresearch_runner.json",
+  "requirements_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/requirements.txt",
+  "environment_file": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/environment.yml"
+}

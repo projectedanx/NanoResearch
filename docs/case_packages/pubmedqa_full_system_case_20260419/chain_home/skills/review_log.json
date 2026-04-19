@@ -1,0 +1,166 @@
+[
+  {
+    "review_id": "review-1634b9341adb",
+    "candidate_id": "cand-868d9cfae01f",
+    "decision": "add_new",
+    "matched_skill_ids": [],
+    "rationale": "Candidate is sufficiently distinct from existing skills and is reusable enough to become a new skill.",
+    "safety_note": "No existing skill is modified by this decision.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T18:21:26.128205Z"
+  },
+  {
+    "review_id": "review-74cb7ea24ff7",
+    "candidate_id": "cand-4c3ae740dfd5",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T18:21:26.700056Z"
+  },
+  {
+    "review_id": "review-6c593c87f6d5",
+    "candidate_id": "cand-ea38e118518f",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T18:21:26.760069Z"
+  },
+  {
+    "review_id": "review-73685d18f5f9",
+    "candidate_id": "cand-5cc5f97f3156",
+    "decision": "add_new",
+    "matched_skill_ids": [],
+    "rationale": "Candidate is sufficiently distinct from existing skills and is reusable enough to become a new skill.",
+    "safety_note": "No existing skill is modified by this decision.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T18:23:51.675065Z"
+  },
+  {
+    "review_id": "review-98a1b867a9e2",
+    "candidate_id": "cand-868d9cfae01f",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T20:37:08.627828Z"
+  },
+  {
+    "review_id": "review-74cb7ea24ff7",
+    "candidate_id": "cand-4c3ae740dfd5",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T20:37:08.649655Z"
+  },
+  {
+    "review_id": "review-6c593c87f6d5",
+    "candidate_id": "cand-ea38e118518f",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T20:37:08.667941Z"
+  },
+  {
+    "review_id": "review-11403f7f77a0",
+    "candidate_id": "cand-5cc5f97f3156",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-d0a655acdddd"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-d0a655acdddd and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T20:38:42.146809Z"
+  },
+  {
+    "review_id": "review-98a1b867a9e2",
+    "candidate_id": "cand-868d9cfae01f",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T22:14:20.277216Z"
+  },
+  {
+    "review_id": "review-74cb7ea24ff7",
+    "candidate_id": "cand-4c3ae740dfd5",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T22:14:20.296029Z"
+  },
+  {
+    "review_id": "review-6c593c87f6d5",
+    "candidate_id": "cand-ea38e118518f",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-b02a6803ef8d"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-b02a6803ef8d and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T22:14:20.312935Z"
+  },
+  {
+    "review_id": "review-11403f7f77a0",
+    "candidate_id": "cand-5cc5f97f3156",
+    "decision": "discard",
+    "matched_skill_ids": [
+      "skill-d0a655acdddd"
+    ],
+    "rationale": "Candidate substantially overlaps with existing skill skill-d0a655acdddd and does not add enough new behavior.",
+    "safety_note": "Discarding avoids overwriting an existing stable skill.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T22:15:59.444193Z"
+  }
+]

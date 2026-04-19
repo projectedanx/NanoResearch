@@ -1,0 +1,127 @@
+{
+  "events": [
+    {
+      "type": "stage_start",
+      "stage": "IDEATION",
+      "progress_pct": 0,
+      "message": "[1/9] Running IDEATION...",
+      "stage_index": 0,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T17:13:23.364011+00:00",
+      "elapsed_s": 0.0
+    },
+    {
+      "type": "stage_complete",
+      "stage": "IDEATION",
+      "progress_pct": 11,
+      "message": "[1/9] IDEATION completed in 4083.5s",
+      "stage_elapsed_s": 4083.5,
+      "timestamp": "2026-04-18T18:21:26.877172+00:00",
+      "elapsed_s": 4083.5
+    },
+    {
+      "type": "stage_start",
+      "stage": "PLANNING",
+      "progress_pct": 11,
+      "message": "[2/9] Running PLANNING...",
+      "stage_index": 1,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T18:21:26.899628+00:00",
+      "elapsed_s": 4083.6
+    },
+    {
+      "type": "stage_complete",
+      "stage": "PLANNING",
+      "progress_pct": 22,
+      "message": "[2/9] PLANNING completed in 144.8s",
+      "stage_elapsed_s": 144.9,
+      "timestamp": "2026-04-18T18:23:51.777891+00:00",
+      "elapsed_s": 4228.4
+    },
+    {
+      "type": "stage_start",
+      "stage": "SETUP",
+      "progress_pct": 22,
+      "message": "[3/9] Running SETUP...",
+      "stage_index": 2,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T18:23:51.806656+00:00",
+      "elapsed_s": 4228.5
+    },
+    {
+      "type": "stage_complete",
+      "stage": "SETUP",
+      "progress_pct": 33,
+      "message": "[3/9] SETUP completed in 126.2s",
+      "stage_elapsed_s": 126.2,
+      "timestamp": "2026-04-18T18:25:58.052047+00:00",
+      "elapsed_s": 4354.7
+    },
+    {
+      "type": "stage_start",
+      "stage": "CODING",
+      "progress_pct": 33,
+      "message": "[4/9] Running CODING...",
+      "stage_index": 3,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T18:25:58.070205+00:00",
+      "elapsed_s": 4354.7
+    },
+    {
+      "type": "stage_complete",
+      "stage": "CODING",
+      "progress_pct": 44,
+      "message": "[4/9] CODING completed in 985.6s",
+      "stage_elapsed_s": 985.6,
+      "timestamp": "2026-04-18T18:42:23.709611+00:00",
+      "elapsed_s": 5340.4
+    },
+    {
+      "type": "stage_start",
+      "stage": "EXECUTION",
+      "progress_pct": 44,
+      "message": "[5/9] Running EXECUTION...",
+      "stage_index": 4,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T18:42:23.728620+00:00",
+      "elapsed_s": 5340.4
+    },
+    {
+      "type": "stage_complete",
+      "stage": "EXECUTION",
+      "progress_pct": 56,
+      "message": "[5/9] EXECUTION completed in 2565.9s",
+      "stage_elapsed_s": 2566.0,
+      "timestamp": "2026-04-18T19:25:09.704221+00:00",
+      "elapsed_s": 7906.4
+    },
+    {
+      "type": "stage_start",
+      "stage": "ANALYSIS",
+      "progress_pct": 56,
+      "message": "[6/9] Running ANALYSIS...",
+      "stage_index": 5,
+      "total_stages": 9,
+      "timestamp": "2026-04-18T19:25:09.753218+00:00",
+      "elapsed_s": 7906.4
+    },
+    {
+      "type": "stage_complete",
+      "stage": "ANALYSIS",
+      "progress_pct": 67,
+      "message": "[6/9] ANALYSIS completed in 39.9s",
+      "stage_elapsed_s": 40.0,
+      "timestamp": "2026-04-18T19:25:49.705746+00:00",
+      "elapsed_s": 7946.4
+    },
+    {
+      "type": "pipeline_complete",
+      "success": true,
+      "progress_pct": 100,
+      "message": "Deep pipeline completed successfully",
+      "timestamp": "2026-04-18T19:25:49.826929+00:00",
+      "elapsed_s": 7946.5
+    }
+  ],
+  "last_update": "2026-04-18T19:25:49.826950+00:00"
+}

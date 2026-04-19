@@ -1,0 +1,14 @@
+[
+  {
+    "review_id": "review-73685d18f5f9",
+    "candidate_id": "cand-5cc5f97f3156",
+    "decision": "add_new",
+    "matched_skill_ids": [],
+    "rationale": "Candidate is sufficiently distinct from existing skills and is reusable enough to become a new skill.",
+    "safety_note": "No existing skill is modified by this decision.",
+    "revised_name": "",
+    "revised_when_to_use": "",
+    "revised_instructions": [],
+    "created_at": "2026-04-18T18:23:51.675065Z"
+  }
+]

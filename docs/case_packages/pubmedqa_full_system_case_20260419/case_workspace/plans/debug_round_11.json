@@ -1,0 +1,44 @@
+{
+  "diagnosis": "Layer 2 (configuration/runtime contract) failure. The training process itself succeeded (exit code 0, empty STDERR, full train/eval completed), so this is not infrastructure or a code crash. The root cause is an output artifact path contract mismatch introduced in launch wiring: `run_train.slurm` forces `NANORESEARCH_RESULTS_DIR` to a workspace-level path (`.../workspaces/attempt-01/results`) while the job runs from `.../experiment`, and downstream validators typically look in the run-local results location. This can mark the job FAILED despite successful training because expected artifacts are not found where the runner/checker expects them.",
+  "patches": [
+    {
+      "file": "run_train.slurm",
+      "old": "mkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/checkpoints\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/logs\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results\nexport NANORESEARCH_RESULTS_DIR=/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results",
+      "new": "mkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/checkpoints\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/logs\nmkdir -p /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results\nexport NANORESEARCH_RESULTS_DIR=/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results\nexport NANORESEARCH_LEGACY_RESULTS_DIR=/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/results",
+      "description": "Aligns primary artifact output with run-local `experiment/results` (common validator expectation) while keeping a legacy mirror target for compatibility."
+    },
+    {
+      "file": "train.py",
+      "old": "import random\nimport sys",
+      "new": "import random\nimport shutil\nimport sys",
+      "description": "Adds filesystem copy support to mirror artifacts into optional legacy results path."
+    },
+    {
+      "file": "train.py",
+      "old": "def get_mode_weights(args) -> Tuple[float, float]:\n    mode = args.mode.lower()\n    if mode == \"baseline\":\n        return 0.0, 0.0\n    if mode == \"cct\":\n        return args.lambda_consistency, args.lambda_contrastive\n    if mode == \"cct_consistency\":\n        return args.lambda_consistency, 0.0\n    if mode == \"cct_contrastive\":\n        return 0.0, args.lambda_contrastive\n    raise ValueError(f\"Unknown mode: {args.mode}\")",
+      "new": "def mirror_results_if_needed(primary_results_dir: str) -> None:\n    legacy_dir = os.environ.get(\"NANORESEARCH_LEGACY_RESULTS_DIR\", \"\").strip()\n    if not legacy_dir:\n        return\n\n    primary_abs = os.path.abspath(primary_results_dir)\n    legacy_abs = os.path.abspath(legacy_dir)\n    if primary_abs == legacy_abs:\n        return\n\n    try:\n        os.makedirs(legacy_abs, exist_ok=True)\n        for name in os.listdir(primary_abs):\n            src = os.path.join(primary_abs, name)\n            dst = os.path.join(legacy_abs, name)\n            if os.path.isdir(src):\n                shutil.copytree(src, dst, dirs_exist_ok=True)\n            elif os.path.isfile(src):\n                shutil.copy2(src, dst)\n    except Exception as e:\n        logging.warning(\"Failed to mirror results to legacy path %s: %s\", legacy_abs, str(e))\n\n\ndef get_mode_weights(args) -> Tuple[float, float]:\n    mode = args.mode.lower()\n    if mode == \"baseline\":\n        return 0.0, 0.0\n    if mode == \"cct\":\n        return args.lambda_consistency, args.lambda_contrastive\n    if mode == \"cct_consistency\":\n        return args.lambda_consistency, 0.0\n    if mode == \"cct_contrastive\":\n        return 0.0, args.lambda_contrastive\n    raise ValueError(f\"Unknown mode: {args.mode}\")",
+      "description": "Introduces a safe artifact mirroring helper so outputs are available in both primary and legacy result paths."
+    },
+    {
+      "file": "train.py",
+      "old": "        save_metrics(payload, args.metrics_json, args.metrics_csv)\n        logging.info(f\"Eval-only complete. Val acc={val_metrics['accuracy']:.4f} Test acc={test_metrics['accuracy']:.4f}\")\n        return",
+      "new": "        save_metrics(payload, args.metrics_json, args.metrics_csv)\n        mirror_results_if_needed(args.results_dir)\n        logging.info(f\"Eval-only complete. Val acc={val_metrics['accuracy']:.4f} Test acc={test_metrics['accuracy']:.4f}\")\n        return",
+      "description": "Ensures eval-only runs also publish artifacts to the legacy path expected by some validators."
+    },
+    {
+      "file": "train.py",
+      "old": "    save_metrics(final_payload, args.metrics_json, args.metrics_csv)\n\n    logging.info(",
+      "new": "    save_metrics(final_payload, args.metrics_json, args.metrics_csv)\n    mirror_results_if_needed(args.results_dir)\n\n    logging.info(",
+      "description": "Mirrors final training artifacts after completion so post-run checks can find metrics/predictions regardless of which results root they inspect."
+    }
+  ],
+  "fixed_files": [
+    "run_train.slurm",
+    "train.py",
+    "train.py",
+    "train.py",
+    "train.py"
+  ],
+  "needs_resubmit": true,
+  "debug_round": 11
+}

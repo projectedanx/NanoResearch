@@ -1,0 +1,71 @@
+{
+  "overall_status": "warnings",
+  "checks": [
+    {
+      "check_name": "config_yaml",
+      "status": "passed",
+      "message": "Config found at config.py (alternative format)",
+      "details": {
+        "config_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/config.py"
+      }
+    },
+    {
+      "check_name": "requirements",
+      "status": "passed",
+      "message": "requirements.txt OK",
+      "details": {
+        "manifest": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/requirements.txt"
+      }
+    },
+    {
+      "check_name": "data_references",
+      "status": "warning",
+      "message": "Hardcoded data paths found (8): evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets; evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models; train.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+      "details": {
+        "warnings": [
+          "Hardcoded data paths found (8): evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets; evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models; train.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets"
+        ],
+        "hardcoded_paths": [
+          "evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+          "evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models",
+          "train.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+          "train.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models",
+          "config.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/",
+          "dataset.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+          "dataset.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+          "dataset.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base"
+        ],
+        "suggested_fixes": [
+          "Replace hardcoded absolute data paths with config-driven or relative paths.",
+          "Add a synthetic or dummy-data fallback for quick-eval mode."
+        ]
+      }
+    },
+    {
+      "check_name": "main_entrypoint",
+      "status": "passed",
+      "message": "train.py entrypoint OK",
+      "details": {
+        "entrypoint_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py"
+      }
+    },
+    {
+      "check_name": "import_resolution",
+      "status": "passed",
+      "message": "All src.* imports resolve",
+      "details": {}
+    }
+  ],
+  "blocking_failures": [],
+  "blocking_check_names": [],
+  "warning_messages": [
+    "data_references: Hardcoded data paths found (8): evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets; evaluate.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models; train.py: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets"
+  ],
+  "warning_check_names": [
+    "data_references"
+  ],
+  "suggested_fixes": [
+    "Replace hardcoded absolute data paths with config-driven or relative paths.",
+    "Add a synthetic or dummy-data fallback for quick-eval mode."
+  ]
+}

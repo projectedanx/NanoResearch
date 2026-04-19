@@ -1,0 +1,29 @@
+/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)
+/mnt/petrelfs/xujinhang/anaconda3/lib/python3.12/site-packages/torch/cuda/__init__.py:61: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+Loading weights:   0%|          | 0/199 [00:00<?, ?it/s]Loading weights: 100%|██████████| 199/199 [00:00<00:00, 41262.93it/s]
+[1mBertForSequenceClassification LOAD REPORT[0m from: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+Key                                        | Status     | 
+-------------------------------------------+------------+-
+cls.predictions.bias                       | UNEXPECTED | 
+cls.predictions.decoder.weight             | UNEXPECTED | 
+cls.seq_relationship.bias                  | UNEXPECTED | 
+cls.predictions.transform.dense.bias       | UNEXPECTED | 
+cls.predictions.transform.dense.weight     | UNEXPECTED | 
+cls.seq_relationship.weight                | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.weight | UNEXPECTED | 
+cls.predictions.transform.LayerNorm.bias   | UNEXPECTED | 
+cls.predictions.decoder.bias               | UNEXPECTED | 
+classifier.bias                            | MISSING    | 
+classifier.weight                          | MISSING    | 
+
+[3mNotes:
+- UNEXPECTED[3m	:can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING[3m	:those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.[0m
+/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py:641: FutureWarning: `torch.cuda.amp.GradScaler(args...)` is deprecated. Please use `torch.amp.GradScaler('cuda', args...)` instead.
+  scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/train.py:668: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.cuda.amp.autocast(enabled=use_amp):
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:01<00:00,  1.07s/it]Writing model shards: 100%|██████████| 1/1 [00:01<00:00,  1.07s/it]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:01<00:00,  1.53s/it]Writing model shards: 100%|██████████| 1/1 [00:01<00:00,  1.53s/it]
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 11585.68it/s]

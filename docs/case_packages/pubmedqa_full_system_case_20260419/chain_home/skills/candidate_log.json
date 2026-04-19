@@ -1,0 +1,91 @@
+[
+  {
+    "candidate_id": "cand-868d9cfae01f",
+    "domain": "literature",
+    "trigger_pattern": "retrieval_pipeline_summary",
+    "name": "Literature Skill: Require one ablation per core module",
+    "description": "Require one ablation per core module.",
+    "when_to_use": "Use when 'retrieval_pipeline_summary' or a similar recurring pattern appears in literature work.",
+    "instructions": [
+      "Require one ablation per core module.",
+      "Make each claimed component correspond to an isolated removal study."
+    ],
+    "source_trace": "Literature retrieval for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce. Background Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable. Known Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline Evaluation Datasets: PubMedQA User Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible. Additional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines. Task: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.: generated 5 queries (PubMedQA benchmark biomedical question answering PubMedBERT BioBERT instruction tuning; contrastive learning loss function biomedical NLP question answering representation learning; lightweight efficient fine-tuning language models limited compute ablation studies reproducibility; biomedical natural language processing datasets evaluation metrics survey review; controlled experiments rigorous methodology scientific grounding NLP incremental innovation); retained 0 papers after filtering; survey_papers=0; supplementary_rounds=2; must_cites=0; extracted_metrics=0; reference_repos=0; used_cache=False. Representative papers: none. Coverage warnings: No abstracts available for evidence extraction.",
+    "source_stage": "ideation",
+    "confidence": 0.58,
+    "tags": [
+      "evaluation question id: light_nlp_biomed_qa persona profile: ai4science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. research domain: nlp difficulty: incremental_innovation problem statement: design a practical method for improving pubmedqa under limited compute while keeping the implementation easy to reproduce. background context: biomedical qa systems already perform reasonably well on pubmedqa, but lightweight improvements with clean ablations and reproducible training are still valuable. known baselines: biobert; pubmedbert; instruction-tuned biomedical qa baseline evaluation datasets: pubmedqa user requirements: generate a new idea and an implementation-oriented plan. keep the method lightweight, ablatable, and reproducible. additional context: prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical qa baselines. task: propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "literature",
+      "original_research",
+      "retrieval_pipeline"
+    ],
+    "created_at": "2026-04-18T18:21:26.114684Z"
+  },
+  {
+    "candidate_id": "cand-4c3ae740dfd5",
+    "domain": "literature",
+    "trigger_pattern": "coverage_gap_supplement",
+    "name": "Literature Skill: Require one ablation per core module",
+    "description": "Require one ablation per core module.",
+    "when_to_use": "Use when 'coverage_gap_supplement' or a similar recurring pattern appears in literature work.",
+    "instructions": [
+      "Require one ablation per core module.",
+      "Make each claimed component correspond to an isolated removal study."
+    ],
+    "source_trace": "Coverage self-evaluation for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce. Background Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable. Known Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline Evaluation Datasets: PubMedQA User Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible. Additional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines. Task: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome. required 2 supplementary search round(s). Use missing-direction feedback to broaden queries instead of trusting the first retrieval pass.",
+    "source_stage": "ideation",
+    "confidence": 0.74,
+    "tags": [
+      "evaluation question id: light_nlp_biomed_qa persona profile: ai4science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. research domain: nlp difficulty: incremental_innovation problem statement: design a practical method for improving pubmedqa under limited compute while keeping the implementation easy to reproduce. background context: biomedical qa systems already perform reasonably well on pubmedqa, but lightweight improvements with clean ablations and reproducible training are still valuable. known baselines: biobert; pubmedbert; instruction-tuned biomedical qa baseline evaluation datasets: pubmedqa user requirements: generate a new idea and an implementation-oriented plan. keep the method lightweight, ablatable, and reproducible. additional context: prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical qa baselines. task: propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "literature",
+      "original_research",
+      "coverage_gap",
+      "supplementary_search"
+    ],
+    "created_at": "2026-04-18T18:21:26.691039Z"
+  },
+  {
+    "candidate_id": "cand-ea38e118518f",
+    "domain": "literature",
+    "trigger_pattern": "retrieval_sparse_or_noisy",
+    "name": "Literature Skill: Require one ablation per core module",
+    "description": "Require one ablation per core module.",
+    "when_to_use": "Use when 'retrieval_sparse_or_noisy' or a similar recurring pattern appears in literature work.",
+    "instructions": [
+      "Require one ablation per core module.",
+      "Make each claimed component correspond to an isolated removal study."
+    ],
+    "source_trace": "Retrieval for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce. Background Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable. Known Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline Evaluation Datasets: PubMedQA User Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible. Additional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines. Task: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome. remained sparse/noisy: kept 0 papers, warnings=No abstracts available for evidence extraction. Prefer broader synonyms, benchmark names, survey/review queries, and baseline-specific OpenAlex lookups before drafting novelty claims.",
+    "source_stage": "ideation",
+    "confidence": 0.72,
+    "tags": [
+      "evaluation question id: light_nlp_biomed_qa persona profile: ai4science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. research domain: nlp difficulty: incremental_innovation problem statement: design a practical method for improving pubmedqa under limited compute while keeping the implementation easy to reproduce. background context: biomedical qa systems already perform reasonably well on pubmedqa, but lightweight improvements with clean ablations and reproducible training are still valuable. known baselines: biobert; pubmedbert; instruction-tuned biomedical qa baseline evaluation datasets: pubmedqa user requirements: generate a new idea and an implementation-oriented plan. keep the method lightweight, ablatable, and reproducible. additional context: prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical qa baselines. task: propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "literature",
+      "original_research",
+      "sparse_retrieval"
+    ],
+    "created_at": "2026-04-18T18:21:26.752877Z"
+  },
+  {
+    "candidate_id": "cand-5cc5f97f3156",
+    "domain": "planning",
+    "trigger_pattern": "planning_blueprint",
+    "name": "Planning Skill: Require one ablation per core module",
+    "description": "Require one ablation per core module.",
+    "when_to_use": "Use when 'planning_blueprint' or a similar recurring pattern appears in planning work.",
+    "instructions": [
+      "Require one ablation per core module.",
+      "Make each claimed component correspond to an isolated removal study."
+    ],
+    "source_trace": "Blueprint for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce. Background Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable. Known Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline Evaluation Datasets: PubMedQA User Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible. Additional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines. Task: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.: method=Contrastive Consistency Tuning (CCT); datasets=['PubMedQA']; primary_metrics=['Accuracy']; ablation_groups=2; compute=1x A100 80GB for 120.0h.",
+    "source_stage": "planning",
+    "confidence": 0.68,
+    "tags": [
+      "evaluation question id: light_nlp_biomed_qa persona profile: ai4science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. research domain: nlp difficulty: incremental_innovation problem statement: design a practical method for improving pubmedqa under limited compute while keeping the implementation easy to reproduce. background context: biomedical qa systems already perform reasonably well on pubmedqa, but lightweight improvements with clean ablations and reproducible training are still valuable. known baselines: biobert; pubmedbert; instruction-tuned biomedical qa baseline evaluation datasets: pubmedqa user requirements: generate a new idea and an implementation-oriented plan. keep the method lightweight, ablatable, and reproducible. additional context: prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical qa baselines. task: propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "contrastive consistency tuning (cct)",
+      "planning",
+      "blueprint"
+    ],
+    "created_at": "2026-04-18T18:23:51.664887Z"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "assignment_id": "ai4science_journal_conservative::full_system::light_nlp_biomed_qa::round01",
+  "chain_id": "ai4science_journal_conservative::full_system::light_nlp_biomed_qa",
+  "persona_id": "ai4science_journal_conservative",
+  "variant_name": "full_system",
+  "question_id": "light_nlp_biomed_qa",
+  "evolution_round": 1,
+  "evolution_total_rounds": 3,
+  "workspace_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01",
+  "assignment_root": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01",
+  "chain_root": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/_chains/ai4science_journal_conservative-full_system-light_nlp_biomed_qa",
+  "output_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run",
+  "attempt_index": 1
+}

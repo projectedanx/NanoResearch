@@ -1,0 +1,60 @@
+{
+  "memory_kind": "promising_direction",
+  "summary": "Promising direction for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubM...",
+  "evidence_summary": "Selection rationale: HYP-001 directly addresses all three identified gaps with a method that is lightweight, rigorously controllable, and focused on a key challenge (ambiguous questions). It aligns perfectly with the user's preference for conservative, scientifically grounded approaches and offers clear novelty agai...",
+  "trajectory_summary": [
+    "top ideas: Augmenting standard instruction tuning with a lightweight contrastive loss that separates correct from plausible-but-incorrect answer representations will improve Pub...",
+    "gaps: Lack of lightweight, controlled methods that isolate the effect of contrastive learning for biomedical QA discrimination, especially on ambiguous questions. Most papers co..."
+  ],
+  "direction_ref": "HYP-001",
+  "conditions": {
+    "topic": "Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+    "paper_mode": "original_research",
+    "datasets": [
+      "PubMedQA"
+    ],
+    "method": "Contrastive Consistency Tuning (CCT)",
+    "resource_budget": "1x A100 80GB",
+    "estimated_hours": "120.0",
+    "source_stage": "planning"
+  },
+  "record": {
+    "memory_id": "rmem-e03cc29cad67e5",
+    "memory_kind": "promising_direction",
+    "content": "Promising direction for Evaluation Question ID: light_nlp_biomed_qa Persona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. Research Domain: NLP Difficulty: incremental_innovation Problem Statement: Design a practical method for improving PubM...",
+    "task_family": "direction_selection",
+    "proposal_ref": "",
+    "direction_ref": "HYP-001",
+    "conditions": {
+      "topic": "Evaluation Question ID: light_nlp_biomed_qa\nPersona Profile: AI4Science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding.\nResearch Domain: NLP\nDifficulty: incremental_innovation\nProblem Statement: Design a practical method for improving PubMedQA under limited compute while keeping the implementation easy to reproduce.\nBackground Context: Biomedical QA systems already perform reasonably well on PubMedQA, but lightweight improvements with clean ablations and reproducible training are still valuable.\nKnown Baselines: BioBERT; PubMedBERT; instruction-tuned biomedical QA baseline\nEvaluation Datasets: PubMedQA\nUser Requirements: Generate a new idea and an implementation-oriented plan. Keep the method lightweight, ablatable, and reproducible.\nAdditional Context: Prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical QA baselines.\nTask: Propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "paper_mode": "original_research",
+      "datasets": "PubMedQA",
+      "method": "Contrastive Consistency Tuning (CCT)",
+      "resource_budget": "1x A100 80GB",
+      "estimated_hours": "120.0",
+      "source_stage": "planning"
+    },
+    "evidence_summary": "Selection rationale: HYP-001 directly addresses all three identified gaps with a method that is lightweight, rigorously controllable, and focused on a key challenge (ambiguous questions). It aligns perfectly with the user's preference for conservative, scientifically grounded approaches and offers clear novelty agai...",
+    "trajectory_summary": [
+      "top ideas: Augmenting standard instruction tuning with a lightweight contrastive loss that separates correct from plausible-but-incorrect answer representations will improve Pub...",
+      "gaps: Lack of lightweight, controlled methods that isolate the effect of contrastive learning for biomedical QA discrimination, especially on ambiguous questions. Most papers co..."
+    ],
+    "uncertainty_note": "Promising directions summarize top-ranked candidates, but should still be revalidated under new budgets or datasets.",
+    "confidence": 0.7,
+    "support_count": 2,
+    "contradiction_count": 0,
+    "source": "experiment_blueprint",
+    "source_stage": "planning",
+    "timestamp": "2026-04-18T18:23:51.633364Z",
+    "importance": 0.78,
+    "recency_weight": 1.0,
+    "tags": [
+      "evaluation question id: light_nlp_biomed_qa persona profile: ai4science journal persona that prefers conservative claims, careful ablations, and strong scientific grounding. research domain: nlp difficulty: incremental_innovation problem statement: design a practical method for improving pubmedqa under limited compute while keeping the implementation easy to reproduce. background context: biomedical qa systems already perform reasonably well on pubmedqa, but lightweight improvements with clean ablations and reproducible training are still valuable. known baselines: biobert; pubmedbert; instruction-tuned biomedical qa baseline evaluation datasets: pubmedqa user requirements: generate a new idea and an implementation-oriented plan. keep the method lightweight, ablatable, and reproducible. additional context: prefer methods that fit within a modest single-node budget and can be compared fairly against standard biomedical qa baselines. task: propose a new research idea, turn it into a rigorous experimental plan, implement the resulting experiment, and analyze the final outcome.",
+      "direction",
+      "promising",
+      "original_research"
+    ],
+    "project_key": "evaluation-question-id-light-nlp-biomed-qa-persona-profile-ai4science-journal-persona-that-prefers-conservative-claims-careful-ablations-and-strong-scientific-grounding-research-domain-nlp-difficulty-incremental-innovation-problem-statement-design-a-practical-method-for-improving-pubmedqa-under-limited-compute-while-keeping-the-implementation-easy-to-reproduce-background-context-biomedical-qa-systems-already-perform-reasonably-well-on-pubmedqa-but-lightweight-improvements-with-clean-ablations-and-reproducible-training-are-still-valuable-known-baselines-biobert-pubmedbert-instruction-tuned-biomedical-qa-baseline-evaluation-datasets-pubmedqa-user-requirements-generate-a-new-idea-and-an-implementation-oriented-plan-keep-the-method-lightweight-ablatable-and-reproducible-additional-context-prefer-methods-that-fit-within-a-modest-single-node-budget-and-can-be-compared-fairly-against-standard-biomedical-qa-baselines-task-propose-a-new-research-idea-turn-it-into-a-rigorous-experimental-plan-implement-the-resulting-experiment-and-analyze-the-final-outcome",
+    "workspace_id": "attempt-01"
+  }
+}

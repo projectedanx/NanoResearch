@@ -1,0 +1,82 @@
+========================================
+Job ID: 8600511
+Node: SH-IDCA1404-10-140-54-18
+GPUs: 7
+Start: Sun Apr 19 02:46:09 CST 2026
+========================================
+Using Python: /mnt/petrelfs/xujinhang/anaconda3/bin/python
+Starting training...
+2026-04-19 02:46:32,056 | INFO | Starting training script with arguments:
+2026-04-19 02:46:32,056 | INFO | {
+  "run_name": "pubmedqa",
+  "mode": "cct",
+  "data_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets",
+  "ori_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/ori_pqal.json",
+  "test_gt_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/test_ground_truth.json",
+  "model_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base",
+  "t5_model_path": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/T5-small",
+  "results_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results",
+  "epochs": 5,
+  "batch_size": 16,
+  "eval_batch_size": 32,
+  "lr": 2e-05,
+  "weight_decay": 0.01,
+  "warmup_ratio": 0.06,
+  "max_length": 512,
+  "grad_accum_steps": 1,
+  "max_grad_norm": 1.0,
+  "lambda_consistency": 0.5,
+  "lambda_contrastive": 0.5,
+  "consistency_temperature": 1.0,
+  "contrastive_margin": 0.2,
+  "val_ratio": 0.2,
+  "max_train_samples": null,
+  "max_val_samples": null,
+  "max_test_samples": null,
+  "paraphrase_batch_size": 16,
+  "paraphrase_cache": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/paraphrase_cache_t5_small.json",
+  "seed": 42,
+  "num_workers": 2,
+  "fp16": true,
+  "cpu": false,
+  "dry_run": false,
+  "quick_eval": false,
+  "eval_only": false,
+  "metrics_json": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/metrics.json",
+  "metrics_csv": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/metrics.csv",
+  "best_ckpt_dir": "/mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/experiment/results/best_model"
+}
+2026-04-19 02:46:32,068 | INFO | Detected SLURM_JOB_ID=8600511
+2026-04-19 02:46:32,068 | INFO | Using device: cuda
+2026-04-19 02:46:32,072 | INFO | Loading local PubMedQA from /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/datasets/pubmedqa/data/ori_pqal.json
+2026-04-19 02:46:32,086 | INFO | Split sizes -> train: 400, val: 100, test: 500
+2026-04-19 02:46:32,088 | WARNING | Skipping local model directory without checkpoint weights: /mnt/dhwfile/raise/user/xujinhang/nanoresearch/router_plan_fullsystem_20260419_10proc_r2/run/ai4science_journal_conservative-full_system-light_nlp_biomed_qa-round01/workspaces/attempt-01/models/PubMedBERT-base
+2026-04-19 02:46:36,805 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:46:40,039 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:46:42,844 | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/e1354b7a3a09615f6aba48dfad4b7a613eef7062/config.json "HTTP/1.1 200 OK"
+2026-04-19 02:46:45,863 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:46:49,999 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:46:52,801 | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/e1354b7a3a09615f6aba48dfad4b7a613eef7062/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-19 02:46:55,821 | INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:46:58,840 | INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-04-19 02:47:01,859 | INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/tree/main?recursive=true&expand=false "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:04,879 | INFO | HTTP Request: GET https://huggingface.co/api/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-04-19 02:47:07,899 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:10,624 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:14,835 | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/e1354b7a3a09615f6aba48dfad4b7a613eef7062/config.json "HTTP/1.1 200 OK"
+2026-04-19 02:47:17,854 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:20,872 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:23,893 | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext/e1354b7a3a09615f6aba48dfad4b7a613eef7062/config.json "HTTP/1.1 200 OK"
+2026-04-19 02:47:26,612 | INFO | HTTP Request: HEAD https://huggingface.co/microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext/resolve/main/model.safetensors "HTTP/1.1 307 Temporary Redirect"
+2026-04-19 02:47:27,893 | INFO | Loaded model/tokenizer from HF id: microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext
+2026-04-19 02:47:36,488 | INFO | Epoch 1 | train_loss=0.9943 val_acc=0.5300 yes=0.9636 no=0.0000 maybe=0.0000
+2026-04-19 02:47:45,680 | INFO | Epoch 2 | train_loss=0.9347 val_acc=0.5500 yes=1.0000 no=0.0000 maybe=0.0000
+2026-04-19 02:47:50,634 | INFO | Epoch 3 | train_loss=0.8783 val_acc=0.4900 yes=0.8909 no=0.0000 maybe=0.0000
+2026-04-19 02:47:55,536 | INFO | Epoch 4 | train_loss=0.7894 val_acc=0.5400 yes=0.7091 no=0.4412 maybe=0.0000
+2026-04-19 02:48:00,414 | INFO | Epoch 5 | train_loss=0.7368 val_acc=0.5500 yes=0.7636 no=0.3824 maybe=0.0000
+2026-04-19 02:48:00,414 | INFO | Loading best checkpoint for final validation/test evaluation...
+2026-04-19 02:48:07,373 | INFO | Training complete | best_epoch=2 best_val_acc=0.5500 final_test_acc=0.5520
+========================================
+End: Sun Apr 19 02:48:08 CST 2026
+Exit code: 0
+========================================
