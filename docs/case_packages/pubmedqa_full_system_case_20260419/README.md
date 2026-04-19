@@ -129,11 +129,19 @@
 - `results/best_model/model.safetensors`
 - `results/best_model/trainer_state.pt`
 - `experiment/__pycache__/`
+- `experiment/results` 软链接
+- `models/BioBERT`、`models/PubMedBERT-base`、`models/T5-small` 软链接
+
+另外做了 GitHub 审阅友好的处理：
+
+- `repos/` 和 `dataset_repos/` 内部的 `.git` 目录已移除，避免被记录成嵌套仓库
+- 原来指向本地缓存和结果目录的软链接，改成说明文件保留来源信息
 
 原因：
 
 - 前两个文件体积过大，只会让仓库膨胀，不影响 co-author 写流程说明
 - `__pycache__` 是运行缓存，不是原始研究产物
+- 软链接在 GitHub 上无法代表真实内容来源，保留说明文件更适合共同写作
 
 ## 7. 使用方式
 
