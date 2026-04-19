@@ -9,6 +9,7 @@ from typing import Any
 
 from ._types import ContributionContract, GroundingPacket
 from .import _check_global_consistency, PAPER_SECTIONS, PAPER_MODE_SECTIONS
+from .grounding_tables import infer_expected_section
 from .section_writer import SURVEY_SECTION_PROMPTS
 from nanoresearch.evolution.memory import MemoryType
 from nanoresearch.schemas.paper import PaperSkeleton, Section
@@ -318,23 +319,13 @@ class _WritingAgentMixin:
         remaining = [k for k in figure_blocks if k not in placed_figures]
         if remaining:
             self.log(f"Fallback placement for {len(remaining)} unplaced figures: {remaining}")
-            section_hints = {
-                "sec:intro": ("qualitative", "example", "motivation", "task",
-                              "illustration", "counterfactual", "demo", "teaser",
-                              "intuition", "sample"),
-                "sec:experiments": ("result", "comparison", "performance", "main", "latency",
-                                    "tradeoff", "trade_off", "efficiency", "scalab",
-                                    "ablation", "analysis", "error"),
-                "sec:method": ("architecture", "framework", "pipeline", "overview", "model",
-                               "diagram", "workflow"),
-                "sec:conclusion": ("contradiction",),
-            }
+            # Day 4 S4: fallback target_label now comes from the same
+            # :data:`grounding_tables.SECTION_HINTS` table that sources
+            # the `% nano:expected_section=` comment injected into the
+            # figure block itself, so the three-way S4 check sees
+            # expected == placement by construction for the fallback path.
             for fk in remaining:
-                target_label = "sec:experiments"
-                for sec_label, keywords in section_hints.items():
-                    if any(kw in fk for kw in keywords):
-                        target_label = sec_label
-                        break
+                target_label = infer_expected_section(fk)
                 for sec in sections:
                     if sec.label == target_label:
                         sec.content += "\n\n" + figure_blocks[fk]

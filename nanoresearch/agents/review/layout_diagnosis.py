@@ -226,10 +226,23 @@ class _LayoutDiagnosisMixin:
             if suggestion:
                 description = f"{description} | suggestion: {suggestion}"
 
+            # Day 4 S4: split the rid tag by whether float_rules emitted
+            # a strict three-way violation ([strict-3way]) or a degraded
+            # two-way one ([downgraded]/[downgraded-inference]). This
+            # lets downstream consumers grep the description to separate
+            # "semantic mismatch" from "missing-comment fallback" without
+            # a new issue_type (dedup key stays (issue_type, float_label)).
+            tag = rid
+            if rid == "S4":
+                if "[strict-3way]" in description:
+                    tag = "S4-strict"
+                elif "[downgraded" in description:  # matches [downgraded] and [downgraded-inference]
+                    tag = "S4-degraded"
+
             review.consistency_issues.append(
                 ConsistencyIssue(
                     issue_type=issue_type,
-                    description=f"[layout/{rid}] {description}",
+                    description=f"[layout/{tag}] {description}",
                     locations=locations,
                     severity=severity,
                 )

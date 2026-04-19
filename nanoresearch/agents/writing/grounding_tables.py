@@ -12,6 +12,53 @@ from . import _escape_latex_text, _table_needs_resizebox
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Day 4 S4 (§3.5 second layer): fig_key keyword -> canonical sec label.
+# ---------------------------------------------------------------------------
+# Source of truth for both:
+#   * writing_agent.py's fallback placement `target_label` decision
+#     (L332-337 in writing_agent.py imports `infer_expected_section`)
+#   * the `% nano:expected_section=` comment injected into every figure
+#     block produced by `_build_figure_blocks` below
+# Keeping both consumers sourced from one table makes it impossible for
+# the injected expected_section to drift out of sync with the actual
+# fallback target — the whole point of the three-way S4 rule relies
+# on that invariant.
+SECTION_HINTS: dict[str, tuple[str, ...]] = {
+    "sec:intro": ("qualitative", "example", "motivation", "task",
+                  "illustration", "counterfactual", "demo", "teaser",
+                  "intuition", "sample"),
+    "sec:experiments": ("result", "comparison", "performance", "main", "latency",
+                        "tradeoff", "trade_off", "efficiency", "scalab",
+                        "ablation", "analysis", "error"),
+    "sec:method": ("architecture", "framework", "pipeline", "overview", "model",
+                   "diagram", "workflow"),
+    "sec:conclusion": ("contradiction",),
+}
+
+# Default when fig_key matches no keyword — aligned with writing_agent.py's
+# pre-existing `target_label = "sec:experiments"` default so the comment
+# and the actual fallback section stay in sync for unnamed figures.
+SECTION_HINTS_DEFAULT = "sec:experiments"
+
+
+def infer_expected_section(fig_key: str) -> str:
+    """Return canonical `sec:X` for a figure key via :data:`SECTION_HINTS`.
+
+    Keywords are scanned in declaration order; the first section whose
+    keyword appears as a substring of ``fig_key`` wins. Returns
+    :data:`SECTION_HINTS_DEFAULT` when no keyword matches.
+
+    Substring matching (not lowercase-normalized) preserves parity with
+    the fallback placement logic in writing_agent.py — keeping injected
+    expected_section and actual placement decisions behaviorally identical.
+    """
+    for sec_label, keywords in SECTION_HINTS.items():
+        if any(kw in fig_key for kw in keywords):
+            return sec_label
+    return SECTION_HINTS_DEFAULT
+
+
 class _GroundingTablesMixin:
     """Mixin — table/figure block building and table verification methods."""
 
@@ -492,11 +539,14 @@ class _GroundingTablesMixin:
                     label_suffix = parts_k[1] if len(parts_k) > 1 else fig_key
                     caption = _escape_latex_text(fig_data.get("caption", f"Figure: {fig_key}"))
                     error_msg = _escape_latex_text(str(fig_data.get("error", "unknown error"))[:120])
+                    expected_section = infer_expected_section(fig_key)
                     blocks[label_suffix] = (
                         f"% NOTE: Figure '{fig_key}' was planned but generation failed.\n"
                         f"% Error: {error_msg}\n"
                         f"% The LLM should acknowledge this figure is unavailable.\n"
-                        f"\\begin{{figure}}[t!]\n\\centering\n"
+                        f"\\begin{{figure}}[t!]\n"
+                        f"% nano:expected_section={expected_section}\n"
+                        f"\\centering\n"
                         f"\\fbox{{\\parbox{{0.7\\textwidth}}{{\\centering "
                         f"\\textit{{[Figure unavailable: {caption}]}}}}}}\n"
                         f"\\caption{{{caption} (figure generation failed)}}\n"
@@ -512,8 +562,11 @@ class _GroundingTablesMixin:
                     logger.warning("Figure %s: no valid file found on disk, skipping", fig_key)
                     continue
                 fw = r"\textwidth" if any(kw in label_suffix.lower() for kw in _full_kws) else r"0.75\textwidth"
+                expected_section = infer_expected_section(fig_key)
                 blocks[label_suffix] = (
-                    f"\\begin{{figure}}[t!]\n\\centering\n"
+                    f"\\begin{{figure}}[t!]\n"
+                    f"% nano:expected_section={expected_section}\n"
+                    f"\\centering\n"
                     f"\\includegraphics[width={fw}, height=0.32\\textheight, keepaspectratio]{{{include_name}}}\n"
                     f"\\caption{{{caption}}}\n\\label{{fig:{label_suffix}}}\n\\end{{figure}}"
                 )
@@ -523,8 +576,11 @@ class _GroundingTablesMixin:
                     if img.suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg"):
                         stem = img.stem
                         readable = stem.replace("_", " ").replace("-", " ").title()
+                        expected_section = infer_expected_section(stem)
                         blocks[stem] = (
-                            f"\\begin{{figure}}[t!]\n\\centering\n"
+                            f"\\begin{{figure}}[t!]\n"
+                            f"% nano:expected_section={expected_section}\n"
+                            f"\\centering\n"
                             f"\\includegraphics[width=0.75\\textwidth]{{{img.name}}}\n"
                             f"\\caption{{{_escape_latex_text(readable)}.}}\n"
                             f"\\label{{fig:{stem}}}\n\\end{{figure}}"
