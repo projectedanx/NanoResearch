@@ -410,6 +410,7 @@ class ExecutionAgent(
         # Debug loop: submit → monitor → if failed, debug & retry
         previous_fixes: list[dict] = []
         final_result = None
+        assignment_context = self._load_assignment_context()
 
         for debug_round in range(MAX_DEBUG_ROUNDS + 1):
             # On first round, check for existing job from a previous run (resume)
@@ -424,7 +425,11 @@ class ExecutionAgent(
                     self.log(f"Existing job {job_id} finished: {final_status}")
             else:
                 # Submit new SLURM job
-                job_id = await self._submit_job(slurm_script)
+                job_id = await self._submit_job(
+                    slurm_script,
+                    code_dir=code_dir,
+                    assignment_context=assignment_context,
+                )
                 self.log(f"Submitted SLURM job: {job_id}")
                 # Monitor job until completion
                 final_status = await self._monitor_job(job_id, code_dir)
@@ -433,6 +438,11 @@ class ExecutionAgent(
             # Collect results
             results = await self._collect_results(code_dir, job_id, final_status)
             self.log(f"Collected results: {list(results.keys())}")
+            self._finalize_cluster_job(
+                job_id,
+                terminal_status=final_status,
+                reason="monitor_complete",
+            )
             recovered_source = str(results.get("recovered_from") or "").strip()
             if recovered_source and (
                 recovered_source == "slurm_logs" or results.get("metrics_artifact_materialized")
@@ -552,7 +562,10 @@ class ExecutionAgent(
                 "remediation_ledger_path": REMEDIATION_LEDGER_PATH,
                 "repair_snapshot_journal_path": self._repair_snapshot_journal_path(),
                 "final_status": final_status,
+                "slurm_final_status": final_status,
                 "code_dir": str(code_dir),
+                "cluster_job_state_path": str(self.workspace.path / "logs" / "cluster_job_state.json"),
+                "cluster_job_events_path": str(self.workspace.path / "logs" / "cluster_job_events.jsonl"),
                 "debug_rounds": debug_round,
                 "execution_status": execution_status,
                 "quick_eval_status": "skipped",
@@ -642,7 +655,10 @@ class ExecutionAgent(
                     "partition": self.config.slurm_partition,
                 },
                 "final_status": "FAILED",
+                "slurm_final_status": "FAILED",
                 "code_dir": str(code_dir),
+                "cluster_job_state_path": str(self.workspace.path / "logs" / "cluster_job_state.json"),
+                "cluster_job_events_path": str(self.workspace.path / "logs" / "cluster_job_events.jsonl"),
                 "debug_rounds": 0,
                 "execution_status": "failed",
                 "quick_eval_status": "skipped",
@@ -664,3 +680,9 @@ class ExecutionAgent(
         final_result["repair_snapshot_journal_path"] = self._repair_snapshot_journal_path()
         self.workspace.write_json("plans/execution_output.json", final_result)
         return final_result
+
+    async def close(self) -> None:
+        try:
+            await _ClusterRunnerMixin.close(self)
+        finally:
+            await BaseResearchAgent.close(self)

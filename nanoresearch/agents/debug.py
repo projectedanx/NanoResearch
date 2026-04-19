@@ -133,6 +133,27 @@ class DebugAgent(_DebugHelpersMixin, BaseResearchAgent):
         }
 
         self.workspace.write_json(f"plans/debug_round_{debug_round}.json", result)
+        self.learn_from_trace(
+            "debug",
+            "debug_round_result",
+            (
+                f"Debug round {debug_round} for {self.workspace.manifest.topic}: "
+                f"job_status={job_status}, diagnosis={diagnosis[:400]}, fixed_files={fixed_files}"
+            ),
+            tags=[self.workspace.manifest.topic, "debug", f"round{debug_round:02d}"],
+            confidence=0.7 if fixed_files else 0.55,
+        )
+        self.remember_context(
+            "decision_history",
+            (
+                f"Debug decision for {self.workspace.manifest.topic}: round={debug_round}, "
+                f"needs_resubmit={needs_resubmit}, fixed_files={fixed_files}"
+            ),
+            importance=0.69,
+            tags=[self.workspace.manifest.topic, "debug"],
+            source=f"debug_round_{debug_round}",
+            topic=self.workspace.manifest.topic,
+        )
         return result
 
     # ------------------------------------------------------------------
@@ -270,6 +291,14 @@ Debug Round: {debug_round}/{MAX_DEBUG_ROUNDS}
 {source_listing}
 {fix_history}
 FIRST classify the error (infrastructure / configuration / code), THEN diagnose the root cause and generate patches. Return JSON only."""
+
+        user_prompt = self.wrap_with_adaptive_context(
+            user_prompt,
+            task_type="experiment",
+            topic=str(self.workspace.manifest.topic or ""),
+            text=f"job_status={job_status}\n\nstderr={stderr_tail}\n\nstdout={stdout_tail}",
+            tags=["execution", "debug", job_status.lower()],
+        )
 
         result = await self.generate_json(system_prompt, user_prompt)
 

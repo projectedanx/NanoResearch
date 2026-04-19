@@ -302,6 +302,23 @@ IMPORTANT:
 
 Return ONLY the Python code, no markdown fences."""
 
+        user_prompt = self.wrap_with_adaptive_context(
+            user_prompt,
+            task_type="analysis",
+            topic=self.workspace.manifest.topic,
+            blueprint=blueprint,
+            text=json.dumps(
+                {
+                    "final_metrics": final_metrics,
+                    "analysis_summary": analysis.get("summary", ""),
+                    "figure_spec": fig_spec,
+                },
+                ensure_ascii=False,
+            )[:5000],
+            tags=["analysis", "figure_code", fig_id, fig_type],
+            include_script_recommendations=False,
+        )
+
         code = await self.generate(system_prompt, user_prompt)
 
         # Robust fence stripping — handles LLM self-correction and multiple blocks

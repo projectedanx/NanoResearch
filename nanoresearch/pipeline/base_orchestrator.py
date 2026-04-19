@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from nanoresearch.agents.base import BaseResearchAgent
 from nanoresearch.config import ResearchConfig
+from nanoresearch.idea_utils import get_blueprint_idea_ref, get_idea_candidates, get_idea_id
 from nanoresearch.pipeline.cost_tracker import CostTracker
 from nanoresearch.pipeline.progress import ProgressEmitter
 from nanoresearch.pipeline.state import PipelineStateMachine
@@ -95,6 +96,30 @@ class BaseOrchestrator(ABC):
 
         Default is no-op.  Deep pipeline overrides for export logic.
         """
+
+    @staticmethod
+    def _result_dict_indicates_failure(result: dict[str, Any]) -> bool:
+        experiment_status = str(result.get("experiment_status", "")).strip().lower()
+        execution_status = str(result.get("execution_status", "")).strip().lower()
+        final_status = str(result.get("final_status", "")).strip().upper()
+        contract = result.get("result_contract")
+        contract_status = (
+            str(contract.get("status", "")).strip().lower()
+            if isinstance(contract, dict)
+            else ""
+        )
+        return (
+            experiment_status == "failed"
+            or execution_status == "failed"
+            or contract_status == "failed"
+            or final_status in {"FAILED", "PRECHECK_FAILED", "TIMEOUT", "CANCELLED"}
+        )
+
+    def _pipeline_succeeded(self, results: dict[str, Any]) -> bool:
+        for value in results.values():
+            if isinstance(value, dict) and self._result_dict_indicates_failure(value):
+                return False
+        return True
 
     # ------------------------------------------------------------------
     # Shared logic
@@ -235,10 +260,19 @@ class BaseOrchestrator(ABC):
                     cost_summary["total_latency_ms"] / 1000,
                 )
 
+            pipeline_success = self._pipeline_succeeded(results)
             self.progress_emitter.pipeline_complete(
-                True, f"{mode_label.capitalize()} pipeline completed successfully",
+                pipeline_success,
+                (
+                    f"{mode_label.capitalize()} pipeline completed successfully"
+                    if pipeline_success
+                    else f"{mode_label.capitalize()} pipeline completed with failed stages"
+                ),
             )
-            logger.info("%s pipeline completed!", mode_label.capitalize())
+            if pipeline_success:
+                logger.info("%s pipeline completed!", mode_label.capitalize())
+            else:
+                logger.warning("%s pipeline completed with failed stages", mode_label.capitalize())
 
             self._post_pipeline(results)
 
@@ -372,16 +406,16 @@ class BaseOrchestrator(ABC):
         if stage == PipelineStage.PLANNING:
             blueprint = results.get("experiment_blueprint", {})
             ideation = results.get("ideation_output", {})
-            hyp_ref = blueprint.get("hypothesis_ref", "")
+            hyp_ref = get_blueprint_idea_ref(blueprint)
             if hyp_ref and ideation:
                 hyp_ids = {
-                    h.get("hypothesis_id", "")
-                    for h in ideation.get("hypotheses", [])
+                    get_idea_id(h)
+                    for h in get_idea_candidates(ideation)
                 }
                 if hyp_ref not in hyp_ids:
                     logger.warning(
-                        "Cross-ref mismatch: blueprint.hypothesis_ref=%r "
-                        "not found in ideation hypotheses %s",
+                        "Cross-ref mismatch: blueprint.idea_ref=%r "
+                        "not found in ideation ideas %s",
                         hyp_ref, hyp_ids,
                     )
 

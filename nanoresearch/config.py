@@ -38,6 +38,8 @@ class StageModelConfig(BaseModel):
     temperature: float | None = 0.3  # None = don't send (for models like Codex/o-series)
     max_tokens: int = 8192
     timeout: float | None = None  # per-stage override; None = use global
+    # Optional override for chat.completions streaming. None = dispatcher default.
+    chat_stream: bool | None = None
 
     # Image generation backend: "openai" (DALL-E) or "gemini" (native Gemini API)
     image_backend: str = "openai"
@@ -82,8 +84,32 @@ class ResearchConfig(BaseModel):
     )
     code_gen: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="MiniMax-M2.7", temperature=None,
+            model="gpt-5.3-codex", temperature=None,
             max_tokens=16384, timeout=600.0,
+        )
+    )
+    method_plan: StageModelConfig = Field(
+        default_factory=lambda: StageModelConfig(
+            model="deepseek-ai/DeepSeek-V3.2",
+            temperature=0.2,
+            max_tokens=4096,
+            timeout=300.0,
+        )
+    )
+    coding_plan: StageModelConfig = Field(
+        default_factory=lambda: StageModelConfig(
+            model="deepseek-ai/DeepSeek-V3.2",
+            temperature=0.2,
+            max_tokens=4096,
+            timeout=300.0,
+        )
+    )
+    writing_plan: StageModelConfig = Field(
+        default_factory=lambda: StageModelConfig(
+            model="deepseek-ai/DeepSeek-V3.2",
+            temperature=0.2,
+            max_tokens=4096,
+            timeout=300.0,
         )
     )
     figure_prompt: StageModelConfig = Field(
@@ -156,6 +182,7 @@ class ResearchConfig(BaseModel):
     script_skill_autorun_policy: str = "safe_only"
     static_skills_dir: str = ""
     same_router_hindsight_sdpo_enabled: bool = False
+    router_planner_enabled: bool = True
     router_sdpo_model_path: str = ""
     router_sdpo_model_name: str = ""
     router_sdpo_base_url: str = ""
@@ -201,11 +228,15 @@ class ResearchConfig(BaseModel):
     experiment_mode: str = "pipeline"
     # Max tool-call rounds in react mode (each round = one LLM ↔ tool exchange)
     react_max_rounds: int = 80
+    coding_file_parallelism: int = 2     # max concurrent LLM calls when generating code files
     # SLURM settings for react mode (auto-detected if empty)
     slurm_partition: str = ""                # SLURM partition (auto-detected if empty)
     slurm_max_gpus: int = 2                 # max GPUs per job
     slurm_quota_type: str = "auto"          # auto/reserved/spot (auto prefers reserved, falls back to spot)
     slurm_default_time: str = ""             # empty = do not emit #SBATCH --time
+    slurm_default_mem: str = "64G"          # explicit memory request to avoid whole-node default allocation
+    cluster_pending_timeout_seconds: int = 0
+    cluster_stall_timeout_seconds: int = 7200
     # Container settings for react mode (for clusters with old glibc)
     container_image: str = ""               # e.g., "docker://ubuntu:22.04" (clean base with glibc 2.35)
     container_path: str = ""                # e.g., "/mnt/shared/ubuntu2204.sif"
@@ -275,6 +306,9 @@ class ResearchConfig(BaseModel):
             "experiment": self.experiment,
             "writing": self.writing,
             "code_gen": self.code_gen,
+            "method_plan": self.method_plan,
+            "coding_plan": self.coding_plan,
+            "writing_plan": self.writing_plan,
             "figure_prompt": self.figure_prompt,
             "figure_code": self.figure_code,
             "figure_gen": self.figure_gen,

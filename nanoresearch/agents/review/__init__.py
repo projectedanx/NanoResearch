@@ -77,15 +77,9 @@ class ReviewAgent(
             return ReviewOutput().model_dump(mode="json")
 
         self.log("Starting automated review")
-        adaptive_review_context = self.build_adaptive_context(
-            "review",
-            topic=ideation_output.get("topic", ""),
-            blueprint=experiment_blueprint,
-            text=paper_tex[:3000],
-            tags=[ideation_output.get("topic", ""), self._experiment_status, "review"],
-            include_script_recommendations=False,
-        )
-        self._adaptive_review_context = adaptive_review_context
+        # REVIEW no longer participates in adaptive router / memory-skill retrieval.
+        # This keeps the review stage outside the main adaptive-ablation surface.
+        self._adaptive_review_context = ""
         retry_error = str(inputs.get("_retry_error", "")).strip()
         if retry_error:
             self.learn_from_trace(

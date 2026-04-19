@@ -8,6 +8,13 @@ from typing import Any
 
 from nanoresearch.agents.base import BaseResearchAgent
 from nanoresearch.evolution.memory import MemoryType
+from nanoresearch.idea_utils import (
+    add_idea_aliases_to_blueprint,
+    get_idea_candidates,
+    get_idea_id,
+    get_selected_idea,
+    get_selected_idea_id,
+)
 from nanoresearch.schemas.experiment import ExperimentBlueprint
 from nanoresearch.schemas.manifest import PipelineStage
 
@@ -16,7 +23,7 @@ logger = logging.getLogger(__name__)
 # Configurable limits
 MAX_PAPERS_IN_SUMMARY = 15
 
-PLANNING_SYSTEM_PROMPT = """You are a research experiment planner. Your task is to design a rigorous experiment plan based on the selected hypothesis from the ideation phase.
+PLANNING_SYSTEM_PROMPT = """You are a research experiment planner. Your task is to design a rigorous experiment plan based on the selected idea from the ideation phase.
 
 CRITICAL RULES — evidence grounding:
 - NEVER invent baseline performance numbers. Use ONLY numbers from the published evidence provided.
@@ -70,7 +77,7 @@ class PlanningAgent(BaseResearchAgent):
         self.log("Starting experiment planning")
 
         topic = ideation_data.get("topic", "")
-        selected_hyp = ideation_data.get("selected_hypothesis", "")
+        selected_hyp = get_selected_idea_id(ideation_data)
         rationale = ideation_data.get("rationale", "")
         adaptive_context = self.build_adaptive_context(
             "planning",
@@ -87,20 +94,19 @@ class PlanningAgent(BaseResearchAgent):
                 tags=[topic, selected_hyp, "retry"],
             )
 
-        # Find the selected hypothesis details
+        # Find the selected idea details while staying compatible with legacy fields.
         hyp_detail = ""
-        hypotheses = ideation_data.get("hypotheses", [])
-        for h in hypotheses:
-            if h.get("hypothesis_id") == selected_hyp:
-                hyp_detail = json.dumps(h, indent=2)
-                break
+        hypotheses = get_idea_candidates(ideation_data)
+        selected_idea = get_selected_idea(ideation_data)
+        if selected_idea:
+            hyp_detail = json.dumps(selected_idea, indent=2)
         if not hyp_detail and hypotheses:
             logger.warning(
-                "Selected hypothesis %r not found among %d hypotheses, using first",
+                "Selected idea %r not found among %d idea candidates, using first",
                 selected_hyp, len(hypotheses),
             )
             hyp_detail = json.dumps(hypotheses[0], indent=2)
-            selected_hyp = hypotheses[0].get("hypothesis_id", selected_hyp)
+            selected_hyp = get_idea_id(hypotheses[0], selected_hyp)
 
         # Summarize related gaps (limit to 10 to avoid prompt overflow)
         gaps_text = json.dumps(ideation_data.get("gaps", [])[:10], indent=2)
@@ -118,7 +124,7 @@ class PlanningAgent(BaseResearchAgent):
         adaptive_prefix = f"{adaptive_context}\n\n" if adaptive_context else ""
         prompt = f"""{adaptive_prefix}Research Topic: "{topic}"
 
-Selected Hypothesis: {selected_hyp}
+Selected Idea: {selected_hyp}
 {hyp_detail}
 
 Selection Rationale: {rationale}
@@ -133,7 +139,7 @@ Key Related Papers:
 
 Design a comprehensive experiment blueprint as JSON with:
 1. "title": Experiment title
-2. "hypothesis_ref": "{selected_hyp}"
+2. "idea_ref" or "hypothesis_ref": "{selected_hyp}"
 3. "datasets": Array of datasets, each with:
    - "name", "description", "source_url", "size_info", "preprocessing_notes"
 4. "baselines": Array of baseline methods, each with:
@@ -233,9 +239,10 @@ Return ONLY valid JSON."""
                 ) from exc
 
         # Save output
+        blueprint_payload = add_idea_aliases_to_blueprint(blueprint.model_dump(mode="json"))
         output_path = self.workspace.write_json(
             "plans/experiment_blueprint.json",
-            blueprint.model_dump(mode="json"),
+            blueprint_payload,
         )
         self.workspace.register_artifact(
             "experiment_blueprint", output_path, self.stage
@@ -271,7 +278,7 @@ Return ONLY valid JSON."""
         self.remember_promising_direction(
             topic=topic,
             ideation_output=ideation_data,
-            planning_output=blueprint.model_dump(mode="json"),
+            planning_output=blueprint_payload,
             artifact_path="logs/promising_direction_summary_planning.json",
             source_stage="planning",
             source="experiment_blueprint",
@@ -292,7 +299,7 @@ Return ONLY valid JSON."""
             confidence=0.68,
         )
         logger.info("[%s] Blueprint generated: %s", self.stage.value, blueprint.title)
-        return blueprint.model_dump(mode="json")
+        return blueprint_payload
 
     @staticmethod
     def _get_proposed_method_name(blueprint: ExperimentBlueprint) -> str:
@@ -356,10 +363,10 @@ Return ONLY valid JSON."""
 
         Fail-open on API errors so the planning stage does not become brittle.
         """
-        selected_hyp = ideation_data.get("selected_hypothesis", "")
+        selected_hyp = get_selected_idea_id(ideation_data)
         user_prompt = (
             f"Research topic: {topic}\n"
-            f"Selected hypothesis: {selected_hyp}\n\n"
+            f"Selected idea: {selected_hyp}\n\n"
             "Decide whether this experiment blueprint has any execution-blocking or "
             "evaluation-invalidating issues.\n\n"
             "Ideation output:\n"

@@ -1,10 +1,10 @@
-"""Ideation stage data models: literature search results, gap analysis, hypotheses."""
+"""Ideation stage data models: literature search results, gap analysis, ideas."""
 
 from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from nanoresearch.schemas.evidence import EvidenceBundle
 
@@ -150,6 +150,31 @@ class IdeationOutput(BaseModel):
         description="Future research directions extracted from paper future work sections (for surveys)",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_idea_aliases(cls, data):
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        ideas = normalized.get("ideas")
+        if isinstance(ideas, list) and "hypotheses" not in normalized:
+            normalized["hypotheses"] = ideas
+        if normalized.get("selected_idea") and not normalized.get("selected_hypothesis"):
+            normalized["selected_hypothesis"] = normalized.get("selected_idea")
+        hypotheses = normalized.get("hypotheses")
+        if isinstance(hypotheses, list):
+            aliased: list[dict] = []
+            for item in hypotheses:
+                if isinstance(item, dict):
+                    row = dict(item)
+                    if row.get("idea_id") and not row.get("hypothesis_id"):
+                        row["hypothesis_id"] = row.get("idea_id")
+                    aliased.append(row)
+                else:
+                    aliased.append(item)
+            normalized["hypotheses"] = aliased
+        return normalized
+
     @field_validator("topic", "survey_summary", "selected_hypothesis", "rationale", mode="before")
     @classmethod
     def _coerce_to_str(cls, v):
@@ -188,3 +213,11 @@ class IdeationOutput(BaseModel):
                 normalized.append(text)
 
         return normalized
+
+    @property
+    def ideas(self) -> list[Hypothesis]:
+        return self.hypotheses
+
+    @property
+    def selected_idea(self) -> str:
+        return self.selected_hypothesis

@@ -20,7 +20,7 @@ Take all previous outputs (ideation, planning, experiment results) and produce a
 - `experiment_results`: Path to `experiments/` directory containing code and results from the experiment skill
 
 ## Process
-1. Parse all upstream outputs to gather hypotheses, literature, experiment design, and results
+1. Parse all upstream outputs to gather ideas, literature, experiment design, and results
 2. Generate the paper outline following a standard structure (Abstract, Introduction, Related Work, Method, Experiments, Conclusion)
 3. Draft the Abstract summarizing the problem, approach, and key findings
 4. Draft the Introduction motivating the research question and stating contributions

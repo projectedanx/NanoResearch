@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from abc import ABC, abstractmethod
 from typing import Any
@@ -48,6 +49,24 @@ from nanoresearch.agents._base_helpers import (  # noqa: F401 — re-exports
 )
 
 logger = logging.getLogger(__name__)
+
+ROUTER_STAGE_PLAN_SYSTEM_PROMPT = """You are the stage planner that sits between NanoResearch's router and the stage execution model.
+
+Your job is to expand the router's short hint into a concrete stage-specific plan that the downstream model can directly follow.
+
+Requirements:
+- Be operational, not high-level.
+- Use the selected memories and skills explicitly when they are relevant.
+- Respect the current stage only; do not re-plan the whole project.
+- Keep the plan concise and execution-oriented.
+- Do not mention hidden system internals or JSON ids.
+
+Return plain text using EXACTLY these section headers:
+Stage Goal:
+Execution Plan:
+Success Checks:
+Avoid:
+"""
 
 
 class BaseResearchAgent(ABC):
@@ -99,11 +118,150 @@ class BaseResearchAgent(ABC):
         task_type = (task_type or "").strip().lower()
         if task_type in {"ideation", "planning", "literature"}:
             return "method_generation"
-        if task_type in {"experiment", "coding", "review"}:
+        if task_type in {"experiment", "coding"}:
             return "code_implementation"
         if task_type == "writing":
             return "paper_writing"
         return "method_generation"
+
+    @staticmethod
+    def _router_plan_stage_name(task_type: str) -> str | None:
+        task_type = (task_type or "").strip().lower()
+        if task_type in {"ideation", "planning", "literature"}:
+            return "method_plan"
+        if task_type == "coding":
+            return "coding_plan"
+        if task_type == "writing":
+            return "writing_plan"
+        return None
+
+    def _render_router_stage_plan(
+        self,
+        *,
+        task_type: str,
+        topic: str,
+        blueprint: dict | None,
+        profile_context: str,
+        router_input: dict[str, Any],
+        router_decision: dict[str, Any],
+        selected_generic_memories: list[Any],
+        selected_research_memories: list[Any],
+        selected_static_matches: list[tuple[Any, int]],
+        selected_nl_skills: list[Any],
+        selected_script_skills: list[Any],
+    ) -> tuple[str, dict[str, Any]]:
+        if not bool(getattr(self.config, "router_planner_enabled", True)):
+            return "", {}
+
+        planner_stage = self._router_plan_stage_name(task_type)
+        if not planner_stage:
+            return "", {}
+
+        cfg = self.config.for_stage(planner_stage)
+
+        selected_memory_lines: list[str] = []
+        for record in selected_generic_memories:
+            selected_memory_lines.append(
+                f"- generic::{record.memory_type.value}::{record.source or record.scope.value}: "
+                f"{self._compact_router_text(record.content, 420)}"
+            )
+        for record in selected_research_memories:
+            condition_bits = ", ".join(
+                f"{key}={value}" for key, value in list(record.conditions.items())[:4]
+            )
+            suffix = f" | conditions: {condition_bits}" if condition_bits else ""
+            selected_memory_lines.append(
+                f"- research::{record.memory_kind.value}::{record.source_stage or record.source or 'research_memory'}: "
+                f"{self._compact_router_text(record.content, 420)}{suffix}"
+            )
+
+        selected_skill_lines: list[str] = []
+        for entry, _score in selected_static_matches:
+            selected_skill_lines.append(
+                f"- static::{entry.name}: {self._compact_router_text(entry.description or entry.name, 240)}"
+            )
+        for skill in selected_nl_skills:
+            instructions = "; ".join(skill.instructions[:3]) if skill.instructions else (
+                skill.rule_text or skill.description or skill.name
+            )
+            selected_skill_lines.append(
+                f"- evolved::{skill.name or skill.stable_id or skill.skill_id}: "
+                f"{self._compact_router_text(instructions, 240)}"
+            )
+        for skill in selected_script_skills:
+            selected_skill_lines.append(
+                f"- script::{skill.name}: {self._compact_router_text(skill.description or skill.name, 240)}"
+            )
+
+        blueprint_text = ""
+        if blueprint:
+            try:
+                blueprint_text = json.dumps(blueprint, ensure_ascii=False)[:2500]
+            except TypeError:
+                blueprint_text = self._compact_router_text(str(blueprint), 2500)
+
+        user_prompt = (
+            f"Stage: {task_type}\n"
+            f"Subsystem: {self._router_subsystem(task_type)}\n"
+            f"Topic:\n{topic}\n\n"
+            f"Profile Context:\n{profile_context or '(none)'}\n\n"
+            f"Router Prompt Hint:\n{router_decision.get('prompt_plan', '') or '(empty)'}\n\n"
+            f"Selected Memories:\n"
+            + ("\n".join(selected_memory_lines) if selected_memory_lines else "- (none)")
+            + "\n\nSelected Skills:\n"
+            + ("\n".join(selected_skill_lines) if selected_skill_lines else "- (none)")
+            + "\n\nBlueprint Context:\n"
+            + (blueprint_text or "(none)")
+            + "\n\nProduce the stage plan now."
+        )
+
+        timeout = cfg.timeout or self.config.timeout
+        client = self._dispatcher._get_client(timeout, cfg.base_url, cfg.api_key)
+        kwargs: dict[str, Any] = {
+            "model": cfg.model,
+            "messages": [
+                {"role": "system", "content": ROUTER_STAGE_PLAN_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "max_tokens": cfg.max_tokens,
+        }
+        if cfg.temperature is not None:
+            kwargs["temperature"] = cfg.temperature
+
+        t0 = time.monotonic()
+        try:
+            response = client.chat.completions.create(**kwargs)
+            latency = (time.monotonic() - t0) * 1000
+            usage = self._dispatcher._extract_usage(response)
+            self._dispatcher._notify_usage("", usage, cfg.model, latency)
+            if not response.choices:
+                raise RuntimeError("planner model returned no choices")
+            content = self._dispatcher._strip_think_blocks(
+                response.choices[0].message.content or ""
+            ).strip()
+            if not content:
+                raise RuntimeError("planner model returned empty plan text")
+            payload = {
+                "planner_stage": planner_stage,
+                "planner_model": cfg.model,
+                "planner_prompt": user_prompt,
+                "plan_text": content,
+                "router_input_task": router_input.get("task", ""),
+            }
+            return content, payload
+        except Exception as exc:
+            logger.warning(
+                "Router stage planner failed for %s/%s via %s: %s",
+                self.stage.value,
+                task_type,
+                cfg.model,
+                exc,
+            )
+            return "", {
+                "planner_stage": planner_stage,
+                "planner_model": cfg.model,
+                "planner_error": str(exc),
+            }
 
     def _build_sdpo_router_blocks(
         self,
@@ -154,7 +312,7 @@ class BaseResearchAgent(ABC):
         static_matches: list[tuple[Any, int]] = []
         if blueprint and task_type_norm in {"planning", "experiment", "coding"}:
             static_matches = self._skill_matcher._static.match(blueprint)
-        elif task_type_norm in {"writing", "review"}:
+        elif task_type_norm in {"writing"}:
             static_matches = self._skill_matcher._static.match_writing_skills(topic=topic, template_format=template_format)
 
         text_payload = text
@@ -239,7 +397,7 @@ class BaseResearchAgent(ABC):
 
         router_input = {
             "task": "Produce the hindsight-improved router decision after feedback."
-            if task_type_norm in {"experiment", "review", "writing"} and bool(text.strip())
+            if task_type_norm in {"experiment", "writing"} and bool(text.strip())
             else "Produce the base router decision before tool execution.",
             "persona_id": str(self._user_profile.get("persona_id", "")),
             "round_id": self.workspace.manifest.session_id,
@@ -261,15 +419,8 @@ class BaseResearchAgent(ABC):
         }
         decision = self._router_policy.decide(
             router_input,
-            post_feedback=bool(text.strip()) and task_type_norm in {"experiment", "review", "writing"},
+            post_feedback=bool(text.strip()) and task_type_norm in {"experiment", "writing"},
         )
-
-        if decision.prompt_plan:
-            blocks.append(
-                "\n\n=== SDPO ROUTER PROMPT PLAN ===\n"
-                f"{decision.prompt_plan}\n"
-                "=== END SDPO ROUTER PROMPT PLAN ===\n"
-            )
 
         selected_ids = set(decision.selected_memory_ids)
         selected_generic_memories = [record for record in memory_records if record.memory_id in selected_ids]
@@ -372,6 +523,35 @@ class BaseResearchAgent(ABC):
                 + "\n=== END REGISTERED PYTHON SCRIPT SKILLS ===\n"
             )
             router_payload["selected_script_skill_ids"] = [skill.skill_id for skill in selected_script_skills]
+
+        if decision.prompt_plan:
+            blocks.append(
+                "\n\n=== SDPO ROUTER PROMPT PLAN ===\n"
+                f"{decision.prompt_plan}\n"
+                "=== END SDPO ROUTER PROMPT PLAN ===\n"
+            )
+
+        expanded_plan_text, expanded_plan_payload = self._render_router_stage_plan(
+            task_type=task_type_norm,
+            topic=topic,
+            blueprint=blueprint,
+            profile_context=profile_context,
+            router_input=router_input,
+            router_decision=decision.as_dict(),
+            selected_generic_memories=selected_generic_memories,
+            selected_research_memories=selected_research_memories,
+            selected_static_matches=selected_static_matches,
+            selected_nl_skills=selected_nl_skills,
+            selected_script_skills=selected_script_skills,
+        )
+        if expanded_plan_text:
+            blocks.append(
+                "\n\n=== ROUTER EXPANDED STAGE PLAN ===\n"
+                f"{expanded_plan_text}\n"
+                "=== END ROUTER EXPANDED STAGE PLAN ===\n"
+            )
+        if expanded_plan_payload:
+            router_payload["router_expanded_plan"] = expanded_plan_payload
 
         router_payload["router_input"] = router_input
         router_payload["router_decision"] = decision.as_dict()
@@ -476,6 +656,37 @@ class BaseResearchAgent(ABC):
             except Exception as exc:
                 logger.debug("Failed to persist adaptive context trace: %s", exc)
         return combined_context
+
+    def wrap_with_adaptive_context(
+        self,
+        user_prompt: str,
+        *,
+        task_type: str,
+        topic: str = "",
+        blueprint: dict | None = None,
+        text: str = "",
+        tags: list[str] | None = None,
+        template_format: str = "",
+        include_script_recommendations: bool = True,
+    ) -> str:
+        """Prepend adaptive memory / skill / SDPO context to a user prompt."""
+        adaptive_context = self.build_adaptive_context(
+            task_type,
+            topic=topic,
+            blueprint=blueprint,
+            text=text,
+            tags=tags,
+            template_format=template_format,
+            include_script_recommendations=include_script_recommendations,
+        )
+        if not adaptive_context:
+            return user_prompt
+        return (
+            "=== ADAPTIVE CONTEXT ===\n"
+            f"{adaptive_context}\n"
+            "=== END ADAPTIVE CONTEXT ===\n\n"
+            f"{user_prompt}"
+        )
 
     def remember_context(
         self,

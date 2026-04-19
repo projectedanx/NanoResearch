@@ -212,10 +212,29 @@ class RouterPolicyRunner:
                 )
             model = AutoModelForCausalLM.from_pretrained(model_path, **load_kwargs)
             if torch.cuda.is_available():
-                model = model.to("cuda")
+                try:
+                    model = model.to("cuda")
+                except (RuntimeError, torch.OutOfMemoryError) as exc:
+                    if not RouterPolicyRunner._is_cuda_oom(exc):
+                        raise
+                    logger.warning(
+                        "Falling back to CPU for local SDPO router at %s after CUDA OOM: %s",
+                        model_path,
+                        exc,
+                    )
+                    del model
+                    torch.cuda.empty_cache()
+                    cpu_load_kwargs = dict(load_kwargs)
+                    cpu_load_kwargs.pop("torch_dtype", None)
+                    model = AutoModelForCausalLM.from_pretrained(model_path, **cpu_load_kwargs)
             model.eval()
             _MODEL_CACHE[model_path] = (tokenizer, model)
             return tokenizer, model
+
+    @staticmethod
+    def _is_cuda_oom(exc: BaseException) -> bool:
+        text = str(exc).lower()
+        return "out of memory" in text and "cuda" in text
 
     @staticmethod
     def _extract_action(raw_response: str) -> dict[str, Any]:

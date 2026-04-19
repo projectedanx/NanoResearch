@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from nanoresearch.evolution.memory import MemoryType
+from nanoresearch.idea_utils import get_selected_idea_id
 from ._types import ContributionContract, GroundingPacket
 from .import _check_global_consistency, PAPER_SECTIONS, PAPER_MODE_SECTIONS
 from .section_writer import SURVEY_SECTION_PROMPTS
@@ -54,7 +55,7 @@ class _WritingAgentMixin:
             text=json.dumps({
                 "paper_mode": paper_mode_str,
                 "topic": ideation.get("topic", ""),
-                "selected_hypothesis": ideation.get("selected_hypothesis", ""),
+                "selected_idea": get_selected_idea_id(ideation),
             }, ensure_ascii=False),
             tags=[ideation.get("topic", ""), paper_mode_str, template_format],
             template_format=template_format,

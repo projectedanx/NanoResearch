@@ -6,6 +6,7 @@ import logging
 import re
 from typing import Any
 
+from nanoresearch.idea_utils import get_selected_idea_id
 from nanoresearch.schemas.review import (
     ReviewOutput,
     SectionReview,
@@ -99,7 +100,7 @@ Section: {heading}
 
 Research context:
 - Topic: {str(ideation_output.get('topic', 'Unknown'))[:500]}
-- Hypothesis: {str(ideation_output.get('selected_hypothesis', 'Unknown'))[:500]}
+- Selected Idea ID: {get_selected_idea_id(ideation_output)[:500] or 'Unknown'}
 - Method: {str((experiment_blueprint.get('proposed_method') or {{}}).get('name', 'Unknown'))[:500]}
 
 Provide a thorough review with:

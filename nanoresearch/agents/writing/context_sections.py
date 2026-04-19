@@ -64,7 +64,7 @@ class _ContextSectionsMixin:
         grounding: GroundingPacket | None = None,
         **_kwargs: Any,
     ) -> str:
-        """Introduction: topic, gaps, hypothesis, method brief, cite keys."""
+        """Introduction: topic, gaps, main idea, method brief, cite keys."""
         gaps_str = json.dumps(core["gaps"], indent=2, ensure_ascii=False)[:3000]
         survey_brief = core["survey"][:2000] if core["survey"] else ""
 
@@ -75,7 +75,7 @@ class _ContextSectionsMixin:
             "",
             f"Research Gaps:\n{gaps_str}",
             "",
-            f"Main Hypothesis: {core['hypothesis']}",
+            f"Main Idea: {core['hypothesis']}",
             "",
             f"Proposed Method: {core['method_name']}",
             f"Method Overview: {core['method_brief']}",
@@ -129,7 +129,7 @@ class _ContextSectionsMixin:
         core: dict[str, Any],
         **_kwargs: Any,
     ) -> str:
-        """Method: full method detail, hypothesis, ablations, cite keys, full-text."""
+        """Method: full method detail, main idea, ablations, cite keys, full-text."""
         full_text_block = ""
         if core["full_text_lines"]:
             full_text_block = (
@@ -141,7 +141,7 @@ class _ContextSectionsMixin:
         parts = [
             f"Topic: {core['topic']}",
             "",
-            f"Main Hypothesis: {core['hypothesis']}",
+            f"Main Idea: {core['hypothesis']}",
             "",
             f"Proposed Method:\n{core['method_str']}",
             "",
@@ -184,7 +184,7 @@ class _ContextSectionsMixin:
         parts = [
             f"Topic: {core['topic']}",
             "",
-            f"Main Hypothesis: {core['hypothesis']}",
+            f"Main Idea: {core['hypothesis']}",
             "",
             f"Proposed Method: {core['method_name']}",
             f"Method Overview: {core['method_brief']}",
@@ -227,7 +227,7 @@ class _ContextSectionsMixin:
         experiment_summary: str = "",
         **_kwargs: Any,
     ) -> str:
-        """Conclusion: topic, hypothesis, method brief, results summary, grounding."""
+        """Conclusion: topic, main idea, method brief, results summary, grounding."""
         normalized_results = self._normalize_experiment_results(
             experiment_results or {},
             core["blueprint"],
@@ -243,7 +243,7 @@ class _ContextSectionsMixin:
         parts = [
             f"Topic: {core['topic']}",
             "",
-            f"Main Hypothesis: {core['hypothesis']}",
+            f"Main Idea: {core['hypothesis']}",
             "",
             f"Proposed Method: {core['method_name']}",
             f"Method Overview: {core['method_brief']}",

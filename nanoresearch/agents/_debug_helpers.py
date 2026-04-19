@@ -194,49 +194,42 @@ echo "GPUs: $CUDA_VISIBLE_DEVICES"
 echo "Start: $(date)"
 echo "========================================"
 
-CONDA_SH=""
-if [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
-    CONDA_SH="$HOME/anaconda3/etc/profile.d/conda.sh"
-elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-    CONDA_SH="$HOME/miniconda3/etc/profile.d/conda.sh"
-elif command -v conda >/dev/null 2>&1; then
-    CONDA_BASE="$(conda info --base 2>/dev/null || true)"
-    if [ -n "$CONDA_BASE" ] && [ -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
-        CONDA_SH="$CONDA_BASE/etc/profile.d/conda.sh"
-    fi
+PYTHON_BIN="$(command -v python 2>/dev/null || true)"
+if [ -z "$PYTHON_BIN" ] && command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+fi
+if [ -z "$PYTHON_BIN" ]; then
+    echo "[ERROR] Could not find a usable python executable." >&2
+    exit 1
 fi
 
-activate_conda_env() {{
-    local env_name="$1"
-    local activate_status=1
-    set +e
-    set +u
-    if [ -n "$CONDA_SH" ] && [ -f "$CONDA_SH" ]; then
-        source "$CONDA_SH" 2>/dev/null || true
-    fi
-    if command -v conda >/dev/null 2>&1; then
-        conda activate "$env_name" >/dev/null 2>&1
-        activate_status=$?
-    fi
-    set -u
-    set -e
-    return "$activate_status"
-}}
-if activate_conda_env "torch"; then
-    echo "Activated conda env: torch"
-elif activate_conda_env "nanoresearch"; then
-    echo "Activated conda env: nanoresearch"
+PIP_BIN="$(dirname "$PYTHON_BIN")/pip"
+if [ ! -x "$PIP_BIN" ]; then
+    PIP_BIN="$PYTHON_BIN -m pip"
 fi
 
 export https_proxy="${{HTTPS_PROXY:-}}"
 export http_proxy="${{HTTP_PROXY:-}}"
+export CUDA_HOME=/mnt/petrelfs/share/test-cuda/cuda-12.1
+export PATH=/mnt/petrelfs/share/test-cuda/cuda-12.1/bin:$PATH
+export LD_LIBRARY_PATH=/mnt/petrelfs/share/test-cuda/cuda-12.1/lib64:${{LD_LIBRARY_PATH:-}}
 
 mkdir -p {code_dir}/results
 mkdir -p {code_dir}/checkpoints
 mkdir -p {code_dir}/logs
 
 cd {code_dir}
-pip install -r requirements.txt --quiet 2>/dev/null || true
+if [ -f requirements.txt ]; then
+    if [ "$PIP_BIN" = "$PYTHON_BIN -m pip" ]; then
+        "$PYTHON_BIN" -m pip install -r requirements.txt --quiet 2>/dev/null || true
+    else
+        "$PIP_BIN" install -r requirements.txt --quiet 2>/dev/null || true
+    fi
+fi
+
+python() {{
+    "$PYTHON_BIN" "$@"
+}}
 
 echo "Starting training..."
 python {runner}

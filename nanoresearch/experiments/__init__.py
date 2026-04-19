@@ -8,6 +8,10 @@ from .deep_persona_runner import (
     run_assignment,
     run_manifest,
 )
+from .elastic_scheduler import (
+    default_worker_id,
+    run_elastic_manifest,
+)
 from .router_persona_eval import (
     APPENDIX_VARIANTS,
     CORE_METRICS,
@@ -29,7 +33,9 @@ __all__ = [
     'build_assignment_topic',
     'build_experiment_manifest',
     'build_result_record',
+    'default_worker_id',
     'resolve_variant_runtime_settings',
     'run_assignment',
+    'run_elastic_manifest',
     'run_manifest',
 ]

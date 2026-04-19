@@ -1,4 +1,4 @@
-"""Ideation agent -- literature search, gap analysis, hypothesis generation.
+"""Ideation agent -- literature search, gap analysis, idea generation.
 
 Split into 3 modules:
     ideation.py             -- IdeationAgent facade + run() + small helpers
@@ -16,6 +16,8 @@ from typing import Any
 from nanoresearch.agents.base import BaseResearchAgent
 from nanoresearch.agents.tools import ToolDefinition, ToolRegistry
 from nanoresearch.evolution.memory import MemoryType
+from nanoresearch.experiments.canonical_baselines import load_canonical_baseline_registry
+from nanoresearch.idea_utils import add_idea_aliases_to_ideation, get_selected_idea_id
 from nanoresearch.schemas.evidence import EvidenceBundle, ExtractedMetric
 from nanoresearch.schemas.ideation import IdeationOutput, PaperReference
 from nanoresearch.schemas.manifest import PipelineStage
@@ -153,6 +155,167 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
         raw = cls._extract_topic_field(topic, field_name)
         return [item.strip() for item in raw.split(";") if item.strip()]
 
+    def _remember_literature_skill(
+        self,
+        topic: str,
+        trigger_pattern: str,
+        trace: str,
+        *,
+        confidence: float = 0.62,
+        extra_tags: list[str] | None = None,
+    ) -> None:
+        tags = [topic, "literature", self.workspace.manifest.paper_mode.value]
+        if extra_tags:
+            tags.extend(extra_tags)
+        self.learn_from_trace(
+            "literature",
+            trigger_pattern,
+            trace,
+            tags=tags,
+            confidence=confidence,
+        )
+
+    def _record_retrieval_skill_summary(
+        self,
+        topic: str,
+        *,
+        queries: list[str],
+        papers: list[dict[str, Any]],
+        survey_papers: int,
+        supplementary_rounds: int,
+        must_cites: list[str],
+        evidence: EvidenceBundle | None,
+        reference_repos: list[dict[str, Any]],
+        used_cache: bool,
+    ) -> None:
+        evidence = evidence or EvidenceBundle()
+        query_preview = "; ".join(str(query).strip() for query in queries[:5] if str(query).strip())
+        top_titles = "; ".join(
+            str(paper.get("title") or "").strip()
+            for paper in papers[:3]
+            if str(paper.get("title") or "").strip()
+        )
+        warnings = "; ".join(str(item).strip() for item in evidence.coverage_warnings[:3] if str(item).strip())
+
+        summary = (
+            f"Literature retrieval for {topic}: generated {len(queries)} queries "
+            f"({query_preview or 'none'}); retained {len(papers)} papers after filtering; "
+            f"survey_papers={survey_papers}; supplementary_rounds={supplementary_rounds}; "
+            f"must_cites={len(must_cites)}; extracted_metrics={len(evidence.extracted_metrics)}; "
+            f"reference_repos={len(reference_repos)}; used_cache={used_cache}. "
+            f"Representative papers: {top_titles or 'none'}. "
+            f"Coverage warnings: {warnings or 'none'}."
+        )
+        self._remember_literature_skill(
+            topic,
+            "retrieval_pipeline_summary",
+            summary,
+            confidence=0.68 if len(papers) >= 10 else 0.58,
+            extra_tags=["retrieval_pipeline"],
+        )
+
+        if supplementary_rounds > 0:
+            self._remember_literature_skill(
+                topic,
+                "coverage_gap_supplement",
+                (
+                    f"Coverage self-evaluation for {topic} required {supplementary_rounds} supplementary search round(s). "
+                    f"Use missing-direction feedback to broaden queries instead of trusting the first retrieval pass."
+                ),
+                confidence=0.74,
+                extra_tags=["coverage_gap", "supplementary_search"],
+            )
+
+        if len(papers) < 8 or evidence.coverage_warnings:
+            self._remember_literature_skill(
+                topic,
+                "retrieval_sparse_or_noisy",
+                (
+                    f"Retrieval for {topic} remained sparse/noisy: kept {len(papers)} papers, "
+                    f"warnings={warnings or 'none'}. Prefer broader synonyms, benchmark names, survey/review queries, "
+                    f"and baseline-specific OpenAlex lookups before drafting novelty claims."
+                ),
+                confidence=0.72,
+                extra_tags=["sparse_retrieval"],
+            )
+
+        if evidence.extracted_metrics:
+            metric_preview = "; ".join(
+                f"{metric.method_name or 'method'} on {metric.dataset or 'dataset'}: {metric.metric_name}={metric.value}"
+                for metric in evidence.extracted_metrics[:3]
+            )
+            self._remember_literature_skill(
+                topic,
+                "baseline_metric_grounding",
+                (
+                    f"For {topic}, literature retrieval extracted quantitative baseline evidence. "
+                    f"Ground planning and novelty claims in retrieved metrics when available. Examples: {metric_preview}."
+                ),
+                confidence=0.76,
+                extra_tags=["baseline_grounding", "quantitative_evidence"],
+            )
+
+    async def _retrieve_local_eval_context(
+        self,
+        topic: str,
+    ) -> tuple[list[PaperReference], EvidenceBundle, list[str]]:
+        """Build local-only eval context without any external retrieval."""
+        question_id = self._extract_topic_field(topic, "Evaluation Question ID")
+        baselines = self._extract_topic_list_field(topic, "Known Baselines")
+        datasets = self._extract_topic_list_field(topic, "Evaluation Datasets")
+
+        references: list[PaperReference] = []
+        extracted_metrics: list[ExtractedMetric] = []
+        coverage_warnings: list[str] = []
+        extraction_notes = "Eval-fast mode used only local question context and canonical baseline registry; no external literature retrieval was performed."
+
+        registry_entry = load_canonical_baseline_registry().get(question_id) if question_id else None
+        if registry_entry:
+            for idx, metric in enumerate(registry_entry.get("metrics") or [], start=1):
+                baseline_name = str(metric.get("baseline_name") or "").strip()
+                metric_name = str(metric.get("metric_name") or "").strip()
+                provenance_title = str(metric.get("provenance_title") or baseline_name or f"{question_id} baseline").strip()
+                provenance_uri = str(metric.get("provenance_uri") or "").strip()
+                paper_id = f"local-baseline::{question_id}::{idx}"
+                dataset_name = datasets[0] if datasets else question_id
+                references.append(
+                    PaperReference(
+                        paper_id=paper_id,
+                        title=provenance_title,
+                        authors=["local_registry"],
+                        abstract=f"Local canonical baseline entry for {question_id}.",
+                        venue="local_registry",
+                        url=provenance_uri,
+                    )
+                )
+                if metric_name and metric.get("baseline_value") is not None:
+                    extracted_metrics.append(
+                        ExtractedMetric(
+                            paper_id=paper_id,
+                            paper_title=provenance_title,
+                            dataset=dataset_name,
+                            metric_name=metric_name,
+                            value=metric.get("baseline_value"),
+                            context=f"Local canonical baseline for {question_id}",
+                            method_name=baseline_name,
+                            higher_is_better=metric.get("higher_is_better"),
+                        )
+                    )
+        else:
+            coverage_warnings.append(
+                "No canonical baseline registry entry matched this evaluation question; ideation used only the local manifest/task description."
+            )
+
+        if baselines and not extracted_metrics:
+            extraction_notes += f" Declared baselines in task context: {', '.join(baselines[:6])}."
+
+        evidence = EvidenceBundle(
+            extracted_metrics=extracted_metrics,
+            extraction_notes=extraction_notes,
+            coverage_warnings=coverage_warnings,
+        )
+        return references, evidence, []
+
     async def _retrieve_baseline_evidence_openalex(
         self,
         topic: str,
@@ -279,29 +442,38 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
             )
 
         if getattr(self.config, "ideation_disable_retrieval", False):
-            self.log("Eval-fast mode: skipping full literature retrieval, but keeping lightweight OpenAlex baseline retrieval")
+            self.log("Eval-fast mode: skipping all external literature retrieval and using local evaluation context only")
             output = await self._run_without_retrieval(topic, adaptive_context=adaptive_context)
             return self._persist_ideation_output(topic, output)
 
         # Check for cached search results (from a previous failed attempt)
         cache_path = self.workspace.path / "logs" / "ideation_search_cache.json"
         cached = None
+        used_cache = False
         if cache_path.is_file():
             try:
                 cached = json.loads(cache_path.read_text(encoding="utf-8"))
                 if not isinstance(cached, dict) or "papers" not in cached:
                     raise ValueError("invalid cache structure")
                 self.log("Found cached search results from previous attempt, skipping search")
+                used_cache = True
             except (json.JSONDecodeError, ValueError, OSError) as e:
                 self.log(f"Search cache invalid ({e}), starting fresh")
                 cached = None
 
+        survey_paper_count = 0
+        supplementary_rounds = 0
         if (cached is not None
                 and isinstance(cached, dict)
                 and isinstance(cached.get("queries"), list)
                 and isinstance(cached.get("papers"), list)):
             queries = cached["queries"]
             papers = cached["papers"]
+            survey_paper_count = sum(
+                1 for paper in papers
+                if "survey" in str(paper.get("title", "") or "").lower()
+                or "review" in str(paper.get("title", "") or "").lower()
+            )
             logger.info("[%s] Using cached: %d queries, %d papers",
                         self.stage.value, len(queries), len(papers))
             must_cites = cached.get("must_cites", [])
@@ -321,6 +493,7 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
 
             # Step 2b: Search for surveys and merge
             survey_papers = await self._search_surveys(topic)
+            survey_paper_count = len(survey_papers)
             logger.info("[%s] Found %d survey papers", self.stage.value, len(survey_papers))
             existing_keys = {self._dedup_key(p) for p in papers}
             for sp in survey_papers:
@@ -358,6 +531,7 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
                 missing = coverage.get("missing_directions", [])
                 if not missing:
                     break
+                supplementary_rounds += 1
                 self.log(f"Search coverage: {score}/10 -- supplementing {len(missing)} directions")
                 new_papers = await self._supplementary_search(missing, all_papers_dict)
                 if new_papers:
@@ -391,7 +565,7 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
             except Exception as e:
                 logger.warning("Failed to cache search results: %s", e)
 
-        # Step 3: LLM analysis -- gaps + hypotheses (with ReAct tool use)
+        # Step 3: LLM analysis -- gaps + idea candidates (with ReAct tool use)
         output = await self._analyze_and_hypothesize(
             topic, queries, papers, adaptive_context=adaptive_context
         )
@@ -415,13 +589,25 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
         logger.info("[%s] Found %d reference GitHub repos",
                     self.stage.value, len(reference_repos))
         output.reference_repos = reference_repos
+        self._record_retrieval_skill_summary(
+            topic,
+            queries=queries,
+            papers=papers,
+            survey_papers=survey_paper_count,
+            supplementary_rounds=supplementary_rounds,
+            must_cites=must_cites,
+            evidence=evidence,
+            reference_repos=reference_repos,
+            used_cache=used_cache,
+        )
 
         return self._persist_ideation_output(topic, output)
 
     def _persist_ideation_output(self, topic: str, output: IdeationOutput) -> dict[str, Any]:
+        ideation_payload = add_idea_aliases_to_ideation(output.model_dump(mode="json"))
         output_path = self.workspace.write_json(
             "papers/ideation_output.json",
-            output.model_dump(mode="json"),
+            ideation_payload,
         )
         self.workspace.register_artifact(
             "ideation_output", output_path, self.stage
@@ -430,7 +616,7 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
         gap_summary = "; ".join(gap_descriptions)
         self.remember_context(
             MemoryType.PROJECT_CONTEXT,
-            f"Ideation for {topic} selected {output.selected_hypothesis} with rationale: {output.rationale}",
+            f"Ideation for {topic} selected {get_selected_idea_id(ideation_payload)} with rationale: {output.rationale}",
             importance=0.74,
             tags=[topic, "ideation", self.workspace.manifest.paper_mode.value],
             source="ideation_output",
@@ -447,28 +633,28 @@ class IdeationAgent(_IdeationSearchMixin, _IdeationHypothesisMixin, BaseResearch
             )
         self.remember_promising_direction(
             topic=topic,
-            ideation_output=output.model_dump(mode="json"),
+            ideation_output=ideation_payload,
             artifact_path="logs/promising_direction_summary_ideation.json",
             source_stage="ideation",
             source="ideation_output",
         )
-        return output.model_dump(mode="json")
+        return ideation_payload
 
     async def _run_without_retrieval(self, topic: str, adaptive_context: str = "") -> IdeationOutput:
-        baseline_papers, baseline_evidence, baseline_queries = await self._retrieve_baseline_evidence_openalex(topic)
+        baseline_papers, baseline_evidence, baseline_queries = await self._retrieve_local_eval_context(topic)
         adaptive_prefix = f"{adaptive_context}\n\n" if adaptive_context else ""
         prompt = f"""{adaptive_prefix}Research Topic:
 {topic}
 
 You are running in evaluation mode. Full literature review and GitHub retrieval are disabled.
 Use the structured task context above to produce a compact ideation result for downstream planning.
-If lightweight baseline evidence was separately retrieved, treat it only as baseline context rather than a full literature survey.
+If local baseline evidence was separately provided, treat it only as baseline context rather than a full literature survey.
 
 Return valid JSON with:
 - survey_summary: short literature-free framing of the task and constraints
 - gaps: array with 2-4 items, each containing gap_id, description, supporting_refs, severity, quantitative_evidence, future_work_mention
-- hypotheses: array with 2-4 items, each containing hypothesis_id, statement, gap_refs, novelty_justification, feasibility_notes, closest_existing_work
-- selected_hypothesis: one hypothesis_id from the list
+- ideas or hypotheses: array with 2-4 idea candidates, each containing idea_id or hypothesis_id, statement, gap_refs, novelty_justification, feasibility_notes, closest_existing_work
+- selected_idea or selected_hypothesis: one identifier from the list
 - rationale: short explanation for the selection
 - theme_clusters: optional array
 - key_challenges: optional array
@@ -490,6 +676,7 @@ Return JSON only."""
 
         if not isinstance(result, dict):
             result = {}
+        result = add_idea_aliases_to_ideation(result)
 
         hypotheses = result.get("hypotheses") if isinstance(result.get("hypotheses"), list) else []
         selected_hypothesis = str(result.get("selected_hypothesis") or "").strip()
@@ -503,9 +690,9 @@ Return JSON only."""
             "survey_summary": str(
                 result.get("survey_summary")
                 or (
-                    "Evaluation-mode ideation generated from manifest context with lightweight OpenAlex baseline retrieval."
+                    "Evaluation-mode ideation generated from local manifest context with local baseline registry support."
                     if baseline_papers
-                    else "Evaluation-mode ideation generated from manifest context without external retrieval."
+                    else "Evaluation-mode ideation generated from local manifest context without external retrieval."
                 )
             ),
             "gaps": result.get("gaps") if isinstance(result.get("gaps"), list) else [

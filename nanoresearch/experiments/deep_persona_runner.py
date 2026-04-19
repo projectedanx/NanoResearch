@@ -12,6 +12,7 @@ import urllib.request
 from typing import Any, Iterable
 
 from .canonical_baselines import lookup_canonical_baseline
+from nanoresearch.idea_utils import get_selected_idea_id
 from .router_persona_eval import VARIANT_BY_NAME
 
 DEFAULT_PERSONA_BRIEFS = {
@@ -22,7 +23,7 @@ DEFAULT_PERSONA_BRIEFS = {
     'cv_visual_benchmark_heavy': 'Computer vision persona that cares about visual quality, benchmark-heavy evaluation, and polished quantitative reporting.',
     'journal_evidence_first_writer': 'Journal-writing persona that insists on evidence-first argumentation, measured claims, and high traceability from result to narrative.',
     'multimodal_systems_engineer': 'Multimodal systems persona that values robust system design, component interfaces, and implementation realism.',
-    'nlp_conference_exploratory': 'NLP conference persona that welcomes exploratory ideas and broader hypothesis search, while still expecting solid experiments.',
+    'nlp_conference_exploratory': 'NLP conference persona that welcomes exploratory ideas and broader idea search, while still expecting solid experiments.',
     'nlp_conference_pragmatic': 'NLP conference persona that prefers pragmatic, ablatable methods with clean implementation paths and reviewer-friendly framing.',
     'resource_constrained_repro_first': 'Compute-limited persona that prioritizes reproducibility, strict budget accounting, and lightweight experiment plans.',
 }
@@ -91,7 +92,7 @@ PERSONA_PROFILE_SPECS = {
     'nlp_conference_exploratory': {
         'seed': 'high_novelty_exploratory',
         'overrides': {
-            'research_profile': {'domain': 'NLP', 'method_preference': 'Welcome broader idea search and exploratory hypotheses so long as evaluation remains falsifiable.'},
+            'research_profile': {'domain': 'NLP', 'method_preference': 'Welcome broader idea search and exploratory directions so long as evaluation remains falsifiable.'},
             'publication_profile': {'venue_style': 'NLP conference'},
         },
     },
@@ -277,7 +278,8 @@ async def run_assignment(
 
     try:
         save_user_profile(_build_persona_profile(assignment, build_profile_seed))
-        base_config = ResearchConfig.load(Path(config_path) if config_path else None)
+        resolved_config_path = _resolve_assignment_config_path(assignment, config_path)
+        base_config = ResearchConfig.load(Path(resolved_config_path) if resolved_config_path else None)
         if disable_ideation_retrieval:
             base_config.ideation_disable_retrieval = True
 
@@ -306,6 +308,14 @@ async def run_assignment(
                 session_id=f'attempt-{attempt_index:02d}',
                 pipeline_mode=PipelineMode.DEEP,
                 paper_mode=PaperMode.ORIGINAL_RESEARCH,
+            )
+            _write_assignment_context(
+                workspace=workspace,
+                assignment=assignment,
+                assignment_root=assignment_root,
+                chain_root=chain_root,
+                output_dir=Path(output_dir),
+                attempt_index=attempt_index,
             )
             workspace_paths.append(str(workspace.path))
             orchestrator = UnifiedPipelineOrchestrator(workspace, variant_config)
@@ -350,6 +360,7 @@ async def run_assignment(
         record['metadata']['workspace_paths'] = workspace_paths
         record['metadata']['nanoresearch_home'] = str(nanoresearch_home)
         record['metadata']['evolution_chain_id'] = str(assignment.get('chain_id') or assignment.get('assignment_id') or '')
+        record['metadata']['config_path'] = str(resolved_config_path or '')
         record['metadata']['evolution_round'] = int(assignment.get('evolution_round') or 1)
         record['metadata']['evolution_total_rounds'] = int(assignment.get('evolution_total_rounds') or 1)
         record['metadata']['persona_profile_path'] = str(nanoresearch_home / 'profile' / 'profile.json')
@@ -398,6 +409,18 @@ def _load_runtime_symbols():
     return ResearchConfig, Workspace, UnifiedPipelineOrchestrator, PipelineMode, PaperMode, build_profile_seed, save_user_profile
 
 
+def _resolve_assignment_config_path(
+    assignment: dict[str, Any],
+    config_path: str | Path | None,
+) -> Path | None:
+    assignment_config = str(assignment.get('config_path') or '').strip()
+    if assignment_config:
+        return Path(assignment_config)
+    if config_path:
+        return Path(config_path)
+    return None
+
+
 def _apply_variant_overrides(base_config: Any, settings: dict[str, Any]) -> Any:
     config = base_config.model_copy(deep=True)
     config.memory_enabled = bool(settings['memory_enabled'])
@@ -443,6 +466,35 @@ def _safe_model_dump(model: Any) -> dict[str, Any]:
     if hasattr(model, 'dict'):
         return model.dict()
     return {}
+
+
+def _write_assignment_context(
+    *,
+    workspace: Any,
+    assignment: dict[str, Any],
+    assignment_root: Path,
+    chain_root: Path,
+    output_dir: Path,
+    attempt_index: int,
+) -> None:
+    question = dict(assignment.get('question') or {})
+    workspace.write_json(
+        'logs/deep_assignment_context.json',
+        {
+            'assignment_id': str(assignment.get('assignment_id') or ''),
+            'chain_id': str(assignment.get('chain_id') or assignment.get('assignment_id') or ''),
+            'persona_id': str(assignment.get('persona_id') or ''),
+            'variant_name': str(assignment.get('variant_name') or ''),
+            'question_id': str(question.get('question_id') or assignment.get('question_id') or ''),
+            'evolution_round': int(assignment.get('evolution_round') or 1),
+            'evolution_total_rounds': int(assignment.get('evolution_total_rounds') or 1),
+            'workspace_path': str(workspace.path),
+            'assignment_root': str(assignment_root),
+            'chain_root': str(chain_root),
+            'output_dir': str(output_dir),
+            'attempt_index': int(attempt_index),
+        },
+    )
 
 
 def _safe_read_json(workspace: Any, subpath: str) -> dict[str, Any]:
@@ -498,6 +550,46 @@ def _flatten_metric_payload(payload: Any) -> dict[str, float]:
     return {}
 
 
+def _metric_match_score(target: str, name: str) -> int:
+    normalized = _normalize_metric_name(name)
+    if not normalized:
+        return -1
+    if normalized == target:
+        return 10_000
+    if normalized.endswith(target):
+        score = 8_000
+    elif target in normalized:
+        score = 6_000
+    else:
+        return -1
+
+    if 'finaltest' in normalized:
+        score += 400
+    elif normalized.startswith('test') or 'test' in normalized:
+        score += 300
+    elif 'final' in normalized:
+        score += 200
+    elif 'eval' in normalized:
+        score += 100
+
+    if 'dev' in normalized or 'val' in normalized:
+        score -= 150
+    if 'train' in normalized:
+        score -= 300
+    if 'best' in normalized:
+        score -= 50
+    return score
+
+
+def _analysis_metric_sources(analysis_output: dict[str, Any]) -> list[dict[str, float]]:
+    analysis = analysis_output.get('analysis') or {}
+    comparison = analysis.get('comparison_with_baselines') or {}
+    metric_sources = [_flatten_metric_payload(analysis.get('final_metrics'))]
+    if isinstance(comparison, dict):
+        metric_sources.append(_flatten_metric_payload(comparison.get('our_method')))
+    return metric_sources
+
+
 def _select_primary_metric(
     blueprint: dict[str, Any],
     experiment_output: dict[str, Any],
@@ -517,7 +609,8 @@ def _select_primary_metric(
             if name:
                 return name, bool(item.get('higher_is_better', True))
     combined = {}
-    combined.update(_flatten_metric_payload((analysis_output.get('analysis') or {}).get('final_metrics')))
+    for metrics in _analysis_metric_sources(analysis_output):
+        combined.update(metrics)
     combined.update(_flatten_metric_payload(experiment_output.get('experiment_results') or experiment_output.get('metrics')))
     if combined:
         first = next(iter(combined))
@@ -534,13 +627,23 @@ def _extract_final_performance(
         return None
     target = _normalize_metric_name(primary_metric_name)
     metric_sources = [
-        _flatten_metric_payload((analysis_output.get('analysis') or {}).get('final_metrics')),
+        *_analysis_metric_sources(analysis_output),
         _flatten_metric_payload(experiment_output.get('experiment_results') or experiment_output.get('metrics')),
     ]
     for metrics in metric_sources:
         for name, value in metrics.items():
             if _normalize_metric_name(name) == target:
                 return round(value, 6)
+    best_value: float | None = None
+    best_score = -1
+    for metrics in metric_sources:
+        for name, value in metrics.items():
+            score = _metric_match_score(target, name)
+            if score > best_score:
+                best_score = score
+                best_value = value
+    if best_score >= 0 and best_value is not None:
+        return round(best_value, 6)
     return None
 
 
@@ -683,7 +786,7 @@ def _judge_alignment(
         'baselines': question.get('baselines'),
         'datasets': question.get('datasets'),
         'user_requirements': question.get('user_requirements'),
-        'selected_hypothesis': ideation_output.get('selected_hypothesis'),
+        'selected_idea': get_selected_idea_id(ideation_output),
         'rationale': ideation_output.get('rationale'),
         'proposed_method': blueprint.get('proposed_method'),
         'blueprint_title': blueprint.get('title'),
@@ -709,7 +812,7 @@ def _judge_novelty(
         'background': question.get('background'),
         'baselines': question.get('baselines'),
         'datasets': question.get('datasets'),
-        'selected_hypothesis': ideation_output.get('selected_hypothesis'),
+        'selected_idea': get_selected_idea_id(ideation_output),
         'rationale': ideation_output.get('rationale'),
         'proposed_method': blueprint.get('proposed_method'),
         'key_components': (blueprint.get('proposed_method') or {}).get('key_components'),

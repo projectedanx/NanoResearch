@@ -39,10 +39,15 @@ class _CodingHelpersMixin:
         partition = getattr(self.config, "slurm_partition", "gpu") or "gpu"
         quota_type = getattr(self.config, "slurm_quota_type", "auto") or "auto"
         estimated_time = str(getattr(self.config, "slurm_default_time", "") or "").strip()
+        requested_mem = str(getattr(self.config, "slurm_default_mem", "64G") or "").strip()
         time_directive = ""
+        mem_directive = ""
         if estimated_time and estimated_time.lower() not in {"none", "null", "unset", "unlimited"}:
             time_directive = f"#SBATCH --time={estimated_time}\n"
+        if requested_mem and requested_mem.lower() not in {"none", "null", "unset", "unlimited"}:
+            mem_directive = f"#SBATCH --mem={requested_mem}\n"
         conda_env = getattr(self.config, "experiment_conda_env", None)
+        python_bin = self._resolve_experiment_python()
 
         script = f"""#!/bin/bash
 #SBATCH --job-name={project_name[:15]}
@@ -52,7 +57,7 @@ class _CodingHelpersMixin:
 #SBATCH --cpus-per-task=16
 #SBATCH --gres=gpu:{num_gpus}
 #SBATCH --quotatype={quota_type}
-{time_directive}#SBATCH --output={code_dir}/logs/slurm_%j.out
+{mem_directive}{time_directive}#SBATCH --output={code_dir}/logs/slurm_%j.out
 #SBATCH --error={code_dir}/logs/slurm_%j.err
 
 set -euo pipefail
@@ -64,8 +69,25 @@ echo "GPUs: $CUDA_VISIBLE_DEVICES"
 echo "Start: $(date)"
 echo "========================================"
 
-# Setup environment -- auto-detect conda location
-CONDA_SH=""
+PYTHON_BIN="{python_bin}"
+if [ ! -x "$PYTHON_BIN" ]; then
+    if command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v python)"
+    elif command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v python3)"
+    else
+        echo "[ERROR] Could not find a usable python executable." >&2
+        exit 1
+    fi
+fi
+
+PIP_BIN="$(dirname "$PYTHON_BIN")/pip"
+if [ ! -x "$PIP_BIN" ]; then
+    PIP_BIN="$PYTHON_BIN -m pip"
+fi
+"""
+        if conda_env:
+            script += f"""CONDA_SH=""
 if [ -f "$HOME/anaconda3/etc/profile.d/conda.sh" ]; then
     CONDA_SH="$HOME/anaconda3/etc/profile.d/conda.sh"
 elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
@@ -77,42 +99,35 @@ elif command -v conda >/dev/null 2>&1; then
     fi
 fi
 
-activate_conda_env() {{
-    local env_name="$1"
-    local activate_status=1
-    set +e
+if [ -n "$CONDA_SH" ] && [ -f "$CONDA_SH" ]; then
     set +u
-    if [ -n "$CONDA_SH" ] && [ -f "$CONDA_SH" ]; then
-        source "$CONDA_SH" 2>/dev/null || true
-    fi
-    if command -v conda >/dev/null 2>&1; then
-        conda activate "$env_name" >/dev/null 2>&1
-        activate_status=$?
-    fi
+    source "$CONDA_SH" 2>/dev/null || true
     set -u
-    set -e
-    return "$activate_status"
-}}
-"""
-        if conda_env:
-            script += f"""if ! activate_conda_env "{conda_env}"; then
-    echo "Warning: failed to activate conda env '{conda_env}', continuing with current Python"
+fi
+if command -v conda >/dev/null 2>&1 && conda activate "{conda_env}" >/dev/null 2>&1; then
+    echo "Activated conda env: {conda_env}"
+    if command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v python)"
+    fi
+    if command -v pip >/dev/null 2>&1; then
+        PIP_BIN="$(command -v pip)"
+    else
+        PIP_BIN="$PYTHON_BIN -m pip"
+    fi
+else
+    echo "Warning: failed to activate conda env '{conda_env}', using $PYTHON_BIN"
 fi
 """
         else:
-            script += """if activate_conda_env "torch"; then
-    echo "Activated conda env: torch"
-elif activate_conda_env "nanoresearch"; then
-    echo "Activated conda env: nanoresearch"
-else
-    echo "Warning: no suitable conda env found, using base"
-fi
-"""
+            script += 'echo "Using Python: $PYTHON_BIN"\n'
         script += f"""
 
 # Enable proxy for downloading models/data (read from environment)
 export https_proxy="${{HTTPS_PROXY:-}}"
 export http_proxy="${{HTTP_PROXY:-}}"
+export CUDA_HOME=/mnt/petrelfs/share/test-cuda/cuda-12.1
+export PATH=/mnt/petrelfs/share/test-cuda/cuda-12.1/bin:$PATH
+export LD_LIBRARY_PATH=/mnt/petrelfs/share/test-cuda/cuda-12.1/lib64:${{LD_LIBRARY_PATH:-}}
 
 # Create output directories
 mkdir -p {code_dir}/results
@@ -122,8 +137,16 @@ mkdir -p {code_dir}/logs
 # Install requirements only when a manifest exists
 cd {code_dir}
 if [ -f requirements.txt ]; then
-    pip install -r requirements.txt --quiet 2>/dev/null || true
+    if [ "$PIP_BIN" = "$PYTHON_BIN -m pip" ]; then
+        "$PYTHON_BIN" -m pip install -r requirements.txt --quiet 2>/dev/null || true
+    else
+        "$PIP_BIN" install -r requirements.txt --quiet 2>/dev/null || true
+    fi
 fi
+
+python() {{
+    "$PYTHON_BIN" "$@"
+}}
 
 # Run training
 echo "Starting training..."
