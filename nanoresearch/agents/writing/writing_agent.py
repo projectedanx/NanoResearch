@@ -22,13 +22,57 @@ logger = logging.getLogger(__name__)
 _A5F_LABEL_PATTERN = re.compile(r'\\label\{((?:fig|tab):[^}]+)\}')
 _A5F_REF_PATTERN = re.compile(r'\\(?:(?:auto|[Cc])?ref)\{((?:fig|tab):[^}]+)\}')
 
+def _check_float_consistency(
+    content: str,
+    *,
+    global_labels: set[str] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Return ``(orphans, danglings)`` for a ``content`` string.
+
+    ``orphans``  = section-local ``labels - refs``  (A-5f H1 scope).
+    ``danglings`` = ``refs - global_labels``         (A-5g H2 scope).
+
+    When ``global_labels`` is ``None`` the dangling pass is SKIPPED —
+    not rendered as "section-local danglings", it is genuinely not
+    run, and an empty list is returned in the second slot.  This
+    signature deliberately fails loud: forgetting to pass
+    ``global_labels`` at a call site that needed global detection
+    gives zero danglings unambiguously, instead of a silent half-check
+    against section-local labels that would produce large numbers of
+    false positives for cross-section refs.
+    """
+    labels = set(_A5F_LABEL_PATTERN.findall(content))
+    refs = set(_A5F_REF_PATTERN.findall(content))
+    orphans = sorted(labels - refs)
+    if global_labels is None:
+        return orphans, []
+    return orphans, sorted(refs - global_labels)
+
+
 def _check_section_orphans(content: str) -> list[str]:
     """Return sorted list of ``fig:`` / ``tab:`` labels in ``content`` that
     have no matching ``\\ref`` / ``\\autoref`` / ``\\Cref`` / ``\\cref`` in
-    the same string. Empty list means section is orphan-free."""
-    labels = set(_A5F_LABEL_PATTERN.findall(content))
-    refs = set(_A5F_REF_PATTERN.findall(content))
-    return sorted(labels - refs)
+    the same string. Empty list means section is orphan-free.
+
+    Thin wrapper over :func:`_check_float_consistency` preserved for
+    call-site stability at the six A-5f integration points (pre / post
+    / global).  A-5g callers invoke :func:`_check_float_consistency`
+    directly with ``global_labels`` to get the dangling slot."""
+    return _check_float_consistency(content)[0]
+
+
+# A-5g: strict-form dangling ref regex for the limited-A fallback path.
+# Matches ``Figure~\ref{fig:X}`` / ``Table~\Cref{tab:Y}`` / ``\autoref``
+# / ``\cref`` variants when preceded by the ``Figure~`` or ``Table~``
+# noun prefix.  Captures only these; other forms (bare ``\ref``,
+# ``Figures~`` / ``Tables~`` plural prefix, space-separated noun, etc.)
+# fall through to warning-only (default C) and surface through the
+# A<->B collaboration channel as ``[layout/H2]``.  Capture group
+# returns the label so the consumer can check it against the
+# per-section dangling set before rewriting.
+_A5G_STRICT_RE = re.compile(
+    r'(?:Figure|Table)~\\(?:auto|[Cc])?ref\{((?:fig|tab):[^}]+)\}'
+)
 
 
 def _build_orphan_retry_feedback(orphans: list[str]) -> str:
@@ -348,6 +392,74 @@ class _WritingAgentMixin:
             else:
                 self.log(f"  [A-5f/global] {sec.label} cleared via stub")
 
+        # A-5g/global: whole-paper dangling ref detection (H2 front-load),
+        # counterpart of A-5f/global's orphan scan.  Architecture is
+        # deliberately global-heavy:
+        #   * [A-5g/pre] has NO code — the CHECKLIST #4 prompt defense is
+        #     the only pre-stage line of defense.  Dangling detection
+        #     requires the full global labels set, which is not yet
+        #     assembled at that point; running a section-local approximation
+        #     would produce large numbers of false positives on legitimate
+        #     cross-section refs.
+        #   * [A-5g/post] has NO code — A-5f/post's ``_inject_orphan_ref_stub``
+        #     only refs labels that just entered this section during helper
+        #     injection, so it is guaranteed not to produce new danglings.
+        #   * [A-5g/global] owns the work: collect ``\label{(?:fig|tab):*}``
+        #     across every finalized section, then scan each section for
+        #     ``refs - global_labels``.
+        # Fallback is a two-tier C + limited-A:
+        #   * limited-A rewrites strict-form occurrences matched by
+        #     :data:`_A5G_STRICT_RE` (``Figure~\ref{fig:X}`` /
+        #     ``Table~\Cref{tab:Y}`` etc.) to grammatically-safe bare nouns
+        #     (``the figure`` / ``the table``).
+        #   * All other dangling refs fall through to logger.warning and
+        #     surface via the A<->B layout-diagnosis channel as ``[layout/H2]``
+        #     entries in ``review_output.json``.  We deliberately do NOT
+        #     force-delete bare ``\ref`` occurrences — mangling prose in
+        #     unpredictable contexts is a larger regression risk than
+        #     leaving a ``??`` that A-5d's review tier already flags.
+        global_labels: set[str] = set()
+        for sec in sections:
+            global_labels.update(_A5F_LABEL_PATTERN.findall(sec.content))
+
+        for sec in sections:
+            _, danglings = _check_float_consistency(
+                sec.content, global_labels=global_labels
+            )
+            if not danglings:
+                continue
+            dangling_set = set(danglings)
+            self.log(
+                f"  [A-5g/global] {sec.label} dangling refs: "
+                f"{sorted(dangling_set)}"
+            )
+            rewrites_applied: list[str] = []
+
+            def _maybe_rewrite(m: re.Match) -> str:
+                label = m.group(1)
+                if label not in dangling_set:
+                    return m.group(0)
+                kind = label.split(":", 1)[0]
+                rewrites_applied.append(label)
+                return "the figure" if kind == "fig" else "the table"
+
+            new_content = _A5G_STRICT_RE.sub(_maybe_rewrite, sec.content)
+            if rewrites_applied:
+                self.log(
+                    f"  [A-5g/global] {sec.label} limited-A rewrote "
+                    f"{len(rewrites_applied)} strict-form occurrence(s): "
+                    f"{rewrites_applied}"
+                )
+                sec.content = new_content
+            _, residual = _check_float_consistency(
+                sec.content, global_labels=global_labels
+            )
+            for lbl in sorted(set(residual)):
+                logger.warning(
+                    "[A-5g/global] %s dangling ref left for [layout/H2]: %s",
+                    sec.label, lbl,
+                )
+
         # Step 5: Build skeleton
         skeleton = PaperSkeleton(
             title=title, authors=authors, abstract=abstract,
@@ -596,14 +708,25 @@ class _WritingAgentMixin:
             "  2. List every `\\ref{fig:*}` / `\\Cref{fig:*}` / `Table~\\ref{tab:*}` in your prose.\n"
             "  3. Confirm each label in step 1 has AT LEAST ONE matching ref in step 2,\n"
             "     within THIS SAME SECTION (not a later section).\n"
+            "  4. Confirm every ref in step 2 resolves to a label that EITHER appears\n"
+            "     in the AVAILABLE FIGURES list below (defined by another section) OR\n"
+            "     in a `\\label{...}` you wrote in THIS section.\n"
             "If any label has no matching ref, rewrite the prose so every float is cited\n"
-            "at least once BEFORE emitting. Do not leave orphans for downstream fix-up.\n\n"
+            "at least once BEFORE emitting. Do not leave orphans for downstream fix-up.\n"
+            "If any ref resolves to NEITHER source above, prefer REWORDING the sentence\n"
+            "to keep any data or claim intact; only delete the ref if the sentence has\n"
+            "no standalone value without it — a ref with no label renders as `??` in\n"
+            "the PDF.\n\n"
             "Positive example:\n"
             "  > As shown in Figure~\\ref{fig:overview}, our pipeline ...\n"
             "  > \\begin{figure}... \\label{fig:overview} \\end{figure}\n"
-            "Negative example (DO NOT produce this):\n"
+            "Negative example 1 — orphan (DO NOT produce this):\n"
             "  > \\begin{figure}... \\label{fig:overview} \\end{figure}\n"
             "  > [no \\ref{fig:overview} anywhere in this section]  <-- orphan, rejected\n"
+            "Negative example 2 — dangling ref (DO NOT produce this):\n"
+            "  > As reported in Table~\\ref{tab:perf_breakdown}, accuracy improves...\n"
+            "  > [tab:perf_breakdown not in AVAILABLE FIGURES, not labeled here]\n"
+            "  >   <-- dangling ref, renders as ?? in PDF, rejected\n"
             "=== END CHECKLIST ===\n\n"
             f"=== AVAILABLE FIGURES — YOU MUST CITE EACH ONE WITH \\ref{{fig:NAME}} ===\n"
             f"{fig_list_text}\n"
@@ -720,6 +843,15 @@ class _WritingAgentMixin:
                 )
             else:
                 self.log(f"  [A-5f/post] {label} cleared via stub")
+
+        # A-5g/post: DELIBERATELY NO CODE.  ``_inject_orphan_ref_stub`` above
+        # only emits ``\ref{X}`` when ``X`` is already a section-local label
+        # (that is how it enters the orphan set in the first place), so the
+        # post stage cannot produce a dangling ref source.  Dangling detection
+        # also requires the full global labels set, which is not yet
+        # assembled at this per-section scope — the whole-paper scan happens
+        # after ``_dedup_section_figures`` returns, where ``[A-5g/global]``
+        # owns the detection + limited-A rewrite + fall-through warning path.
 
         return Section(heading=heading, label=label, content=content), placed_figures
 
