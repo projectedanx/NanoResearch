@@ -736,9 +736,16 @@ conda install -c conda-forge tectonic
   <img src="imgs/wechat_group.png" alt="WeChat Group QR Code" width="220"/>
 </p>
 
-<p align="center">
-  <a href="https://github.com/jhxu003" title="jhxu003"><img src="https://avatars.githubusercontent.com/u/144009546?v=4" width="48" height="48" alt="jhxu003" /></a>&nbsp;<a href="https://github.com/YujunWu03" title="YujunWu03"><img src="https://avatars.githubusercontent.com/u/150153034?v=4" width="48" height="48" alt="YujunWu03" /></a>&nbsp;<a href="https://github.com/01Elaine" title="01Elaine"><img src="https://avatars.githubusercontent.com/u/149477111?v=4" width="48" height="48" alt="01Elaine" /></a>&nbsp;<a href="https://github.com/DongXu-Zhang" title="DongXu-Zhang"><img src="https://avatars.githubusercontent.com/u/132906734?v=4" width="48" height="48" alt="DongXu-Zhang" /></a>&nbsp;<a href="https://github.com/chengtan9907" title="chengtan9907"><img src="https://avatars.githubusercontent.com/u/34480960?v=4" width="48" height="48" alt="chengtan9907" /></a>&nbsp;<a href="https://github.com/Auranj" title="Auranj"><img src="https://avatars.githubusercontent.com/u/192096664?v=4" width="48" height="48" alt="Auranj" /></a>
-</p>
+<table align="center">
+  <tr>
+    <td align="center"><a href="https://github.com/jhxu003" title="jhxu003"><img src="https://avatars.githubusercontent.com/u/144009546?v=4" width="48" height="48" alt="jhxu003" /></a></td>
+    <td align="center"><a href="https://github.com/YujunWu03" title="YujunWu03"><img src="https://avatars.githubusercontent.com/u/150153034?v=4" width="48" height="48" alt="YujunWu03" /></a></td>
+    <td align="center"><a href="https://github.com/01Elaine" title="01Elaine"><img src="https://avatars.githubusercontent.com/u/149477111?v=4" width="48" height="48" alt="01Elaine" /></a></td>
+    <td align="center"><a href="https://github.com/DongXu-Zhang" title="DongXu-Zhang"><img src="https://avatars.githubusercontent.com/u/132906734?v=4" width="48" height="48" alt="DongXu-Zhang" /></a></td>
+    <td align="center"><a href="https://github.com/chengtan9907" title="chengtan9907"><img src="https://avatars.githubusercontent.com/u/34480960?v=4" width="48" height="48" alt="chengtan9907" /></a></td>
+    <td align="center"><a href="https://github.com/Auranj" title="Auranj"><img src="https://avatars.githubusercontent.com/u/192096664?v=4" width="48" height="48" alt="Auranj" /></a></td>
+  </tr>
+</table>
 
 <p align="right"><a href="#top">🔝 返回顶部</a></p>
 
