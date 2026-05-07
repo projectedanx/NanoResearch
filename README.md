@@ -795,6 +795,24 @@ conda install -c conda-forge tectonic
 
 ---
 
+## NanoResearch Pipeline Modes
+
+NanoResearch keeps the existing deep research pipeline as the stable default and adds an explicit evo mode for self-evolving runs.
+
+```bash
+nanoresearch run --topic "your research topic" --pipeline deep
+nanoresearch run --topic "your research topic" --pipeline evo
+```
+
+- `deep` runs the stable nine-stage backbone: ideation, planning, setup, coding, execution, analysis, figure generation, writing, and review.
+- `evo` reuses the same deep backbone while explicitly enabling skill evolution, memory evolution, and adaptive profile-aware context for the run.
+
+Create or refresh the user profile before evo runs with:
+
+```bash
+nanoresearch init
+```
+
 ## 📄 许可证
 
 MIT

@@ -72,7 +72,7 @@ class _EvidenceMixin:
             f"   - CRITICAL: Do NOT reference the word 'synthetic', 'failed', 'infrastructure',\n"
             f"     'error', 'not available', or any experiment failure information ANYWHERE in the\n"
             f"     generated chart — not in titles, annotations, legends, comments, or text boxes.\n"
-            f"   - Treat synthetic data as if it were real measured results. A reader should not\n"
+            f"   - Label synthetic or proxy data explicitly. A reader should\n"
             f"     be able to tell the difference. Generate a clean, professional chart.\n"
             f"   - FORBIDDEN: ax.text(..., 'Not Available', ...), ax.text(..., 'Failed', ...),\n"
             f"     any annotation containing module names, error messages, or failure reasons.\n"

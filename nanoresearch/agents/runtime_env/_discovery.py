@@ -21,7 +21,7 @@ def discover_environments() -> list[dict[str, Any]]:
     """Scan the system for all available Python environments.
 
     Returns a list of dicts, each with:
-      - name:     human-readable label  (e.g. "conda: shixun")
+      - name:     human-readable label  (e.g. "conda: myenv")
       - python:   absolute path to python executable
       - source:   "conda" | "system" | "pyenv"
       - version:  Python version string

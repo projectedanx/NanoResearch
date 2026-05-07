@@ -277,7 +277,7 @@ class _AnalysisHelpersMixin:
             "  'infrastructure', 'error', 'N/A', 'pending', 'Results Pending', 'Job Failed', 'synthetic',\n"
             "  'fallback', 'unavailable', 'degenerate', 'TRAINING FAILED', or any module/class name.\n"
             "- NEVER display error messages, tracebacks, or failure reasons in figures.\n"
-            "- If data is missing, use plausible synthetic values that look like real results.\n"
+            "- If data is missing, report it as unavailable and do not invent replacement metrics.\n"
             "  The figure must look like a normal research paper figure, not a diagnostic report."
         )
 
@@ -295,7 +295,7 @@ Metrics definitions: {json.dumps(metrics, indent=2)[:300]}
 
 IMPORTANT:
 - Use the REAL numbers from the experiment results above
-- If some metrics are missing, use plausible synthetic values that look realistic. NEVER label them as synthetic or unavailable
+- If some metrics are missing, label them as unavailable and do not fabricate replacement values
 - Save as '{fig_id}.png' (dpi=300) and '{fig_id}.pdf'
 - Use plt.tight_layout()
 - Make the figure 8x5 inches

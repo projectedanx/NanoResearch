@@ -114,16 +114,13 @@ class BaseOrchestrator(ABC):
 
     async def run(self, topic: str) -> dict[str, Any]:
         """Run the full pipeline from current stage to DONE."""
-        mode_label = "DEEP" if self._PIPELINE_MODE == PipelineMode.DEEP else "standard"
+        mode_label = self._PIPELINE_MODE.value if self._PIPELINE_MODE else PipelineMode.STANDARD.value
         logger.info("Starting %s pipeline for topic: %s", mode_label, topic)
         logger.info("Current stage: %s", self.state_machine.current.value)
 
-        # Ensure manifest records the pipeline mode (deep only)
-        if (
-            self._PIPELINE_MODE == PipelineMode.DEEP
-            and self.workspace.manifest.pipeline_mode != PipelineMode.DEEP
-        ):
-            self.workspace.update_manifest(pipeline_mode=PipelineMode.DEEP)
+        # Ensure manifest records the selected non-standard pipeline mode.
+        if self._PIPELINE_MODE and self.workspace.manifest.pipeline_mode != self._PIPELINE_MODE:
+            self.workspace.update_manifest(pipeline_mode=self._PIPELINE_MODE)
 
         self._reset_stale_running_stages()
 

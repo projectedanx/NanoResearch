@@ -158,7 +158,7 @@ class ResearchConfig(BaseModel):
 
     # RAM (Reflection-Augmentation Model) settings
     ram_enabled: bool = False
-    ram_model_name_or_path: str = "/mnt/petrelfs/xujinhang/model/Qwen2.5-8B-Instruct"
+    ram_model_name_or_path: str = "Qwen/Qwen2.5-7B-Instruct"
     ram_backend: str = "hf"  # "hf" (HuggingFace Transformers) or "vllm" (vLLM HTTP API)
     ram_vllm_url: str = ""
     ram_max_new_tokens: int = 1024
@@ -179,12 +179,12 @@ class ResearchConfig(BaseModel):
     # Use an existing NAMED conda env instead of creating a per-session env.
     # When set, this env is used directly (shared across sessions).
     # Takes priority over environment_backend auto-detection.
-    experiment_conda_env: str = ""  # e.g., "shixun"
+    experiment_conda_env: str = ""  # e.g., "myenv"
 
     # Point to a user-managed Python environment. Accepts:
     #   - python executable path:  "D:/anaconda/envs/myenv/python.exe"
     #   - environment directory:   "D:/projects/.venv"  (auto-finds python inside)
-    #   - conda env name:          "shixun"  (resolved via conda)
+    #   - conda env name:          "myenv"  (resolved via conda)
     # When set, skips all auto-creation/install — uses the environment as-is.
     # Takes highest priority over all other environment settings.
     experiment_python: str = ""
@@ -213,7 +213,7 @@ class ResearchConfig(BaseModel):
     slurm_default_time: str = "30-00:00:00"  # default wall time (30 days)
     # Container settings for react mode (for clusters with old glibc)
     container_image: str = ""               # e.g., "docker://ubuntu:22.04" (clean base with glibc 2.35)
-    container_path: str = ""                # e.g., "/mnt/shared/ubuntu2204.sif"
+    container_path: str = ""                # e.g., "/path/to/ubuntu2204.sif"
     container_bind: str = "/mnt:/mnt"       # bind mounts for apptainer
 
     @classmethod

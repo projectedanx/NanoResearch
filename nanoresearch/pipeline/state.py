@@ -54,7 +54,7 @@ class PipelineStateMachine:
 
     @property
     def _transitions(self) -> dict[PipelineStage, list[PipelineStage]]:
-        if self._mode == PipelineMode.DEEP:
+        if self._mode in (PipelineMode.DEEP, PipelineMode.EVO):
             return DEEP_STAGE_TRANSITIONS
         return STANDARD_STAGE_TRANSITIONS
 
@@ -99,7 +99,7 @@ class PipelineStateMachine:
         """Return the next forward (non-FAILED) stage, or None if terminal."""
 
         transitions = (
-            DEEP_STAGE_TRANSITIONS if mode == PipelineMode.DEEP
+            DEEP_STAGE_TRANSITIONS if mode in (PipelineMode.DEEP, PipelineMode.EVO)
             else STANDARD_STAGE_TRANSITIONS
         )
         forward = [s for s in transitions.get(current, []) if s != PipelineStage.FAILED]

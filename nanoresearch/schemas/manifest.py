@@ -32,6 +32,7 @@ class PipelineMode(str, Enum):
 
     STANDARD = "standard"
     DEEP = "deep"
+    EVO = "evo"
 
 
 class PaperMode(str, Enum):
@@ -103,7 +104,7 @@ def processing_stages_for_mode(
 ) -> list[PipelineStage]:
     """Return the ordered working stages for the selected pipeline mode."""
 
-    if mode == PipelineMode.DEEP:
+    if mode in (PipelineMode.DEEP, PipelineMode.EVO):
         return list(DEEP_PROCESSING_STAGES)
     return list(STANDARD_PROCESSING_STAGES)
 

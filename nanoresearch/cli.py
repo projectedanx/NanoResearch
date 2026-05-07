@@ -37,6 +37,7 @@ from rich.table import Table
 from nanoresearch import __version__
 from nanoresearch.config import ExecutionProfile, ResearchConfig
 from nanoresearch.pipeline.orchestrator import PipelineOrchestrator
+from nanoresearch.pipeline.evo_orchestrator import EvoPipelineOrchestrator
 from nanoresearch.pipeline.unified_orchestrator import UnifiedPipelineOrchestrator
 from nanoresearch.pipeline.workspace import Workspace
 from nanoresearch.profile import (
@@ -194,6 +195,7 @@ def run(
     topic: str = typer.Option(..., "--topic", "-t", help="Research topic"),
     format: str = typer.Option(None, "--format", "-f", help="Paper format (auto-discovered from templates directory)"),
     config_path: Path = typer.Option(None, "--config", "-c", help="Path to config file"),
+    pipeline: PipelineMode = typer.Option(PipelineMode.DEEP, "--pipeline", help="Pipeline mode: deep, evo, or standard"),
     profile: ExecutionProfile | None = typer.Option(
         None,
         "--profile",
@@ -241,6 +243,7 @@ def run(
             f"[bold]Ideation model:[/bold] {config.ideation.model}\n"
             f"[bold]Writing model:[/bold] {config.writing.model}\n"
             f"[bold]Execution profile:[/bold] {config.execution_profile.value}\n"
+            f"[bold]Pipeline:[/bold] {pipeline.value}\n"
             f"[bold]Writing mode:[/bold] {config.writing_mode.value}\n"
             f"[bold]Max retries:[/bold] {config.max_retries}\n"
             f"\n[green]Configuration is valid.[/green]",
@@ -252,12 +255,12 @@ def run(
     workspace = Workspace.create(
         topic=topic,
         config_snapshot=config.snapshot(),
-        pipeline_mode=PipelineMode.DEEP,
+        pipeline_mode=pipeline,
         paper_mode=paper_mode,
     )
     console.print(Panel(
         f"[bold]Topic:[/bold] {topic}\n"
-        f"[bold]Pipeline:[/bold] Unified deep backbone\n"
+        f"[bold]Pipeline:[/bold] {pipeline.value}\n"
         f"[bold]Profile:[/bold] {config.execution_profile.value}\n"
         f"[bold]Session:[/bold] {workspace.manifest.session_id}\n"
         f"[bold]Workspace:[/bold] {workspace.path}\n"
@@ -266,9 +269,18 @@ def run(
         border_style="blue",
     ))
 
-    orchestrator = UnifiedPipelineOrchestrator(
-        workspace, config, progress_callback=_cli_progress,
-    )
+    if pipeline == PipelineMode.EVO:
+        orchestrator = EvoPipelineOrchestrator(
+            workspace, config, progress_callback=_cli_progress,
+        )
+    elif pipeline == PipelineMode.STANDARD:
+        orchestrator = PipelineOrchestrator(
+            workspace, config, progress_callback=_cli_progress,
+        )
+    else:
+        orchestrator = UnifiedPipelineOrchestrator(
+            workspace, config, progress_callback=_cli_progress,
+        )
     try:
         result = asyncio.run(_run_deep_pipeline(orchestrator, topic))
         _print_result(result, workspace)
@@ -561,10 +573,22 @@ def resume(
             console.print("[green]Pipeline already completed.[/green]")
             return
 
+    is_evo = manifest.pipeline_mode == PipelineMode.EVO
     is_deep = manifest.pipeline_mode == PipelineMode.DEEP
 
-    if is_deep:
-        console.print("  [magenta]Detected unified/deep workspace — using UnifiedPipelineOrchestrator[/magenta]")
+    if is_evo:
+        console.print("  [magenta]Detected evo workspace -- using EvoPipelineOrchestrator[/magenta]")
+        orchestrator = EvoPipelineOrchestrator(
+            ws, config, progress_callback=_cli_progress,
+        )
+        try:
+            result = asyncio.run(_run_deep_pipeline(orchestrator, manifest.topic))
+            _print_result(result, ws)
+        except Exception as e:
+            console.print(f"[red]Evo pipeline failed:[/red] {e}")
+            raise typer.Exit(1)
+    elif is_deep:
+        console.print("  [magenta]Detected unified/deep workspace -- using UnifiedPipelineOrchestrator[/magenta]")
         orchestrator = UnifiedPipelineOrchestrator(
             ws, config, progress_callback=_cli_progress,
         )
