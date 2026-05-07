@@ -1,7 +1,6 @@
 """ExperimentAgent main run method and code quality helpers."""
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import subprocess
@@ -73,11 +72,7 @@ class _ExperimentAgentMixin:
         if repo_context:
             self.log(f"Using {len(reference_repos)} reference repos for code grounding")
 
-        analyzer = FeedbackAnalyzer(
-            self.config,
-            self._dispatcher,
-            adaptive_context=adaptive_context,
-        )
+        analyzer = FeedbackAnalyzer(self.config, self._dispatcher)
         iteration_state = IterationState(max_rounds=max_rounds)
         code_dir = self.workspace.path / "code"
         venv_python: str = ""
@@ -358,18 +353,13 @@ class _ExperimentAgentMixin:
                 continue
             valid_specs.append(file_spec)
 
-        max_parallel = max(1, int(getattr(self.config, "coding_file_parallelism", 2) or 1))
-        self.log(f"  Generating {len(valid_specs)} files with parallelism={max_parallel}")
-        contents: list[str | BaseException] = []
-        for start in range(0, len(valid_specs), max_parallel):
-            batch = valid_specs[start:start + max_parallel]
-            batch_contents = await asyncio.gather(*(
-                self._generate_file(
-                    spec, interface_contract, blueprint_summary, repo_context
-                )
-                for spec in batch
-            ), return_exceptions=True)
-            contents.extend(batch_contents)
+        self.log(f"  Generating {len(valid_specs)} files in parallel")
+        contents = await asyncio.gather(*(
+            self._generate_file(
+                spec, interface_contract, blueprint_summary, repo_context
+            )
+            for spec in valid_specs
+        ), return_exceptions=True)
 
         for spec, content in zip(valid_specs, contents):
             file_path = spec["path"]

@@ -53,5 +53,4 @@ class _RepairMixin(
 ):
     """Aggregated repair mixin composed from sub-mixins."""
 
-    def _execution_auto_repair_enabled(self) -> bool:
-        return bool(getattr(self.config, "execution_auto_repair_enabled", False))
+    pass

@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from nanoresearch.idea_utils import get_idea_candidates, get_idea_id, get_selected_idea_id
 logger = logging.getLogger(__name__)
 
 MAX_PAPERS_FOR_CITATIONS = 50
@@ -92,13 +91,12 @@ class _ContextBuilderMixin(_ContextSectionsMixin):
         survey = ideation.get("survey_summary", "")
         gaps = ideation.get("gaps", [])
 
-        idea = ""
-        selected_idea_id = get_selected_idea_id(ideation)
-        for h in get_idea_candidates(ideation):
+        hypothesis = ""
+        for h in ideation.get("hypotheses", []):
             if not isinstance(h, dict):
                 continue
-            if get_idea_id(h) == selected_idea_id:
-                idea = h.get("statement", "")
+            if h.get("hypothesis_id") == ideation.get("selected_hypothesis"):
+                hypothesis = h.get("statement", "")
                 break
 
         method = blueprint.get("proposed_method") or {}
@@ -170,7 +168,7 @@ Literature Survey:
 Research Gaps:
 {gaps_str}
 
-Main Idea: {idea}
+Main Hypothesis: {hypothesis}
 
 Proposed Method:
 {method_str}
@@ -280,11 +278,10 @@ Every component listed above should appear in the ablation table.
         topic = ideation.get("topic", "")
 
         hypothesis = ""
-        selected_idea_id = get_selected_idea_id(ideation)
-        for h in get_idea_candidates(ideation):
+        for h in ideation.get("hypotheses", []):
             if not isinstance(h, dict):
                 continue
-            if get_idea_id(h) == selected_idea_id:
+            if h.get("hypothesis_id") == ideation.get("selected_hypothesis"):
                 hypothesis = h.get("statement", "")
                 break
 
