@@ -472,7 +472,6 @@ The writing stage reads only measured execution results, analysis reports, and f
 | `figure_gen` | AI architecture diagrams | gpt-image-2 (OpenAI-compatible image API) | gpt-image-2 |
 | `review` | Review + revision | DeepSeek-V3.2 / pro/gpt-5.5 | DeepSeek-V3.2 |
 
-> **Note:** All text models are accessed through a single OpenAI-compatible endpoint. Set `temperature: null` for models that don't support it (e.g., Codex, o-series). The `figure_gen` stage uses an OpenAI-compatible image API; use model `gpt-image-2` with `"image_backend": "openai"`.
 
 
 ---

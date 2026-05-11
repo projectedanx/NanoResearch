@@ -390,7 +390,6 @@ nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} 
 | `figure_gen` | AI 架构图生成 | gpt-image-2（OpenAI-compatible image API） | gpt-image-2 |
 | `review` | 审稿 + 修订 | DeepSeek-V3.2 / pro/gpt-5.5 | DeepSeek-V3.2 |
 
-> **说明**：所有文本模型通过单一 OpenAI 兼容端点访问。对于不支持 temperature 的模型（如 Codex、o 系列），设置 `temperature: null`。`figure_gen` 使用 OpenAI 兼容图像 API；推荐模型名为 `gpt-image-2`，并设置 `"image_backend": "openai"`。
 
 
 ---
