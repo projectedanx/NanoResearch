@@ -56,6 +56,7 @@
 - [CLI: Plain vs TUI](#cli-plain-vs-tui)
 - [🔬 Pipeline](#-pipeline)
 - [📦 Quick Start](#-quick-start)
+- [🧬 Evo Self-Evolving Pipeline](#-evo-self-evolving-pipeline)
 - [🧩 Claude Code Mode](#-claude-code-mode)
 - [⚙️ Configuration](#️-configuration)
 - [💻 CLI Reference](#-cli-reference)
@@ -406,6 +407,55 @@ nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} 
 ### Step 4: Expected Output
 
 After the pipeline completes, you will have paper figures and LaTeX sources backed by real experiment data.
+
+---
+
+## 🧬 Evo Self-Evolving Pipeline
+
+NanoResearch keeps the original `deep` pipeline as the stable default and adds `evo` for the self-evolving workflow described in the paper: skill evolution, memory evolution, and feedback-aware planner/router adaptation.
+
+### When to use `evo`
+
+- You want the system to accumulate reusable skills and project memory across research cycles.
+- You want plans to adapt to user preferences, resource constraints, target venues, and feedback.
+- You want planning to explicitly request proposed-method, baseline, ablation, optimization/history, and complexity experiments, with paper writing grounded only in real artifacts.
+
+### From user initialization to paper export
+
+```bash
+# 1. Initialize or refresh the user profile, preferences, and runtime settings
+nanoresearch init
+
+# 2. Start the self-evolving full workflow
+nanoresearch run --pipeline evo --topic "your research topic" --format neurips2025 --verbose
+
+# 3. Resume if a stage fails or the process is interrupted
+nanoresearch resume --workspace ~/.nanoresearch/workspace/research/{session_id} --verbose
+
+# 4. Inspect stage status and artifacts
+nanoresearch status --workspace ~/.nanoresearch/workspace/research/{session_id}
+nanoresearch inspect --workspace ~/.nanoresearch/workspace/research/{session_id}
+
+# 5. Export the final paper package
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_export
+```
+
+### What `evo` produces
+
+`evo` still runs the nine-stage backbone: `IDEATION -> PLANNING -> SETUP -> CODING -> EXECUTION -> ANALYSIS -> FIGURE_GEN -> WRITING -> REVIEW`. The difference is that it continuously updates and reuses the user profile, skill bank, project memory, and feedback routing across stages.
+
+Machine-checkable experiment artifacts are typically written to:
+
+```text
+~/.nanoresearch/workspace/research/{session_id}/experiment/configs/experiment_matrix.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/metrics.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/run_manifest.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/final_metrics.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/optimization_history.csv
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/pareto_front.json
+```
+
+The writing stage reads only measured execution results, analysis reports, and figure artifacts. If an experiment category or metric has no real artifact, NanoResearch narrows the evidence scope or writes it as a limitation / future-work item rather than filling in synthetic numbers. OpenAlex can be used anonymously; configure `OPENALEX_API_KEY` only when you need higher literature-search rate limits.
 
 ---
 

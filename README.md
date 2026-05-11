@@ -56,6 +56,7 @@
 - [CLI：标准输出与 TUI 对比](#cli-tui-vs-plain)
 - [🔬 流水线](#-流水线)
 - [📦 快速开始](#-快速开始)
+- [🧬 Evo 自进化流水线](#-evo-自进化流水线)
 - [🧩 Claude Code 模式](#-claude-code-模式)
 - [⚙️ 配置](#️-配置)
 - [💻 CLI 参考](#-cli-参考)
@@ -324,6 +325,55 @@ nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} 
 ### 步骤四：预期输出
 
 完成流水线后，你将得到包含真实实验数据的论文配图与 LaTeX 源码。
+
+---
+
+## 🧬 Evo 自进化流水线
+
+NanoResearch 保留原有 `deep` 流水线作为稳定默认模式，并新增 `evo` 自进化模式，用于对齐论文中的三层自进化设计：技能演化、记忆演化，以及基于用户反馈的 planner / router 行为适配。
+
+### 什么时候使用 `evo`
+
+- 希望系统跨多轮研究积累可复用技能和项目记忆。
+- 希望根据个人偏好、算力约束、目标 venue 和反馈逐步调整研究计划。
+- 希望规划阶段明确生成 proposed method、baseline、ablation、optimization/history 和 complexity 相关实验，并让论文只基于真实 artifact 写作。
+
+### 从用户初始化到论文产出
+
+```bash
+# 1. 初始化或更新用户画像、偏好和运行配置
+nanoresearch init
+
+# 2. 启动自进化完整流水线
+nanoresearch run --pipeline evo --topic "your research topic" --format neurips2025 --verbose
+
+# 3. 中途失败或断开后恢复
+nanoresearch resume --workspace ~/.nanoresearch/workspace/research/{session_id} --verbose
+
+# 4. 查看阶段状态和产物
+nanoresearch status --workspace ~/.nanoresearch/workspace/research/{session_id}
+nanoresearch inspect --workspace ~/.nanoresearch/workspace/research/{session_id}
+
+# 5. 导出最终论文包
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_export
+```
+
+### Evo 模式会产出什么
+
+`evo` 仍然运行 9 个阶段：`IDEATION -> PLANNING -> SETUP -> CODING -> EXECUTION -> ANALYSIS -> FIGURE_GEN -> WRITING -> REVIEW`。区别在于它会在这些阶段之间持续更新和复用用户画像、技能库、项目记忆和反馈路由。
+
+关键机器可检查 artifact 通常位于：
+
+```text
+~/.nanoresearch/workspace/research/{session_id}/experiment/configs/experiment_matrix.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/metrics.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/run_manifest.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/final_metrics.json
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/optimization_history.csv
+~/.nanoresearch/workspace/research/{session_id}/experiment/results/pareto_front.json
+```
+
+写作阶段只读取真实执行结果、分析报告和图表 artifact。若某类实验或指标没有真实产物，系统会降低证据范围或写入 limitation / future work，不会补 synthetic 数值。文献检索可匿名使用 OpenAlex；如需更高速率，可自行配置 `OPENALEX_API_KEY`。
 
 ---
 
@@ -798,47 +848,6 @@ conda install -c conda-forge tectonic
 ```
 
 ---
-
-## NanoResearch Pipeline Modes
-
-NanoResearch keeps the existing deep research pipeline as the stable default and adds an explicit evo mode for self-evolving runs.
-
-```bash
-nanoresearch run --topic "your research topic" --pipeline deep
-nanoresearch run --topic "your research topic" --pipeline evo
-```
-
-- `deep` runs the stable nine-stage backbone: ideation, planning, setup, coding, execution, analysis, figure generation, writing, and review.
-- `evo` reuses the same deep backbone while enabling tri-level evolution: skill evolution, memory evolution, and same-router hindsight policy routing for profile-aware feedback internalization.
-
-Create or refresh the user profile before evo runs with:
-
-```bash
-nanoresearch init
-```
-
-Recommended evo workflow from initialization to paper export:
-
-```bash
-# 1. Initialize/update user profile and preferences
-nanoresearch init
-
-# 2. Run the self-evolving full workflow
-nanoresearch run --pipeline evo --topic "your research topic" --format neurips --verbose
-
-# 3. Inspect machine-checkable experiment artifacts
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/configs/experiment_matrix.json
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/metrics.json
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/run_manifest.json
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/final_metrics.json
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/optimization_history.csv
-# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/pareto_front.json
-
-# 4. Export LaTeX/PDF artifacts
-nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_export
-```
-
-The evo planning stage creates an experiment matrix with proposed, measured baselines, ablations, optimization/history, and complexity runs. Missing runs or artifacts are reported as degraded evidence rather than filled with synthetic values. Configure OpenAlex with `OPENALEX_API_KEY` when you need higher literature-search rate limits; no private keys should be committed to the repository.
 
 ## 📄 许可证
 
