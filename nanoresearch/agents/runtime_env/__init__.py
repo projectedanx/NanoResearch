@@ -141,6 +141,53 @@ class RuntimeEnvironmentManager(
             self._log(f"User python not executable: {exc}")
         return False
 
+    async def _find_compatible_existing_python(
+        self,
+        code_dir: Path,
+        execution_policy: ExperimentExecutionPolicy,
+    ) -> dict[str, Any] | None:
+        """Return an existing Python environment that already satisfies imports."""
+        self._log("Scanning existing Python environments before creating one...")
+        candidates: list[dict[str, Any]] = []
+        current = str(Path(sys.executable).resolve())
+        candidates.append({
+            "name": "current CLI environment",
+            "python": current,
+            "source": "current",
+            "version": "",
+            "packages": [],
+        })
+        for env in discover_environments():
+            if env.get("python") != current:
+                candidates.append(env)
+
+        seen: set[str] = set()
+        for env in candidates:
+            python = str(env.get("python") or "")
+            if not python or python in seen:
+                continue
+            seen.add(python)
+            validation = await self.validate_runtime(
+                python, code_dir, execution_policy=execution_policy,
+            )
+            if validation.get("status") == "ready":
+                self._log(f"Using existing compatible environment: {env.get('name', python)} -> {python}")
+                return {
+                    "kind": str(env.get("source") or "existing"),
+                    "python": python,
+                    "env_name": str(env.get("name") or ""),
+                    "created": False,
+                    "requirements_path": str(code_dir / "requirements.txt") if (code_dir / "requirements.txt").exists() else "",
+                    "environment_file": str(self._find_environment_file(code_dir) or ""),
+                    "dependency_install": {"status": "skipped", "reason": "existing environment already satisfies requirements"},
+                    "runtime_validation": validation,
+                    "runtime_validation_repair": {"status": "skipped", "actions": []},
+                    "execution_policy": execution_policy.to_dict(),
+                }
+
+        self._log("No existing environment satisfied the generated requirements")
+        return None
+
     # ------------------------------------------------------------------
     # Interactive environment selection
     # ------------------------------------------------------------------
@@ -287,6 +334,12 @@ class RuntimeEnvironmentManager(
             else:
                 self._log(f"Could not resolve experiment_python='{user_spec}', falling back")
 
+        # ----- Priority 0.25: auto-detect compatible local env ------------
+        if not user_spec and not force_isolated:
+            existing = await self._find_compatible_existing_python(code_dir, execution_policy)
+            if existing is not None:
+                return existing
+
         # ----- Priority 0.5: interactive env selection (TTY only) ---------
         if not user_spec and not force_isolated and sys.stdin.isatty():
             selected = self._interactive_env_select()
@@ -310,12 +363,23 @@ class RuntimeEnvironmentManager(
             conda_python = self.find_conda_python(conda_env)
             if conda_python:
                 self._log(f"Using existing conda env '{conda_env}': {conda_python}")
-                install_info = await self.install_requirements(conda_python, code_dir)
                 runtime_validation = await self.validate_runtime(
                     conda_python,
                     code_dir,
                     execution_policy=execution_policy,
                 )
+                if runtime_validation.get("status") == "ready":
+                    install_info: dict[str, Any] = {
+                        "status": "skipped",
+                        "reason": "existing conda environment already satisfies requirements",
+                    }
+                else:
+                    install_info = await self.install_requirements(conda_python, code_dir)
+                    runtime_validation = await self.validate_runtime(
+                        conda_python,
+                        code_dir,
+                        execution_policy=execution_policy,
+                    )
                 return {
                     "kind": "conda",
                     "python": conda_python,

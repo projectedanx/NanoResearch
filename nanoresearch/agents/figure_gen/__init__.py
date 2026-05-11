@@ -51,6 +51,10 @@ class FigureAgent(
         # ANALYSIS no longer generates figures; FIGURE_GEN owns all 4 figures.
         existing_figures: dict = {}
 
+        # Remove stale generated figure files from previous resume attempts so the
+        # exported release folder contains only the active figure plan.
+        self._cleanup_stale_generated_figures()
+
         # Detect survey mode: no experiment blueprint but survey_blueprint exists
         is_survey = bool(survey_blueprint) and not blueprint
         if is_survey:
@@ -151,6 +155,11 @@ class FigureAgent(
                         context, fig_key, fig_key, description, ai_image_type,
                         caption=caption,
                     )
+                    if isinstance(result, dict):
+                        result.setdefault("figure_kind", fig_spec.get("figure_kind", "schematic"))
+                        result.setdefault("required_backend", "image2")
+                        result.setdefault("fig_type", "ai_image")
+                        result.setdefault("ai_image_type", ai_image_type)
                 else:
                     output_path = str(
                         self.workspace.path / "figures" / f"{fig_key}.png"
@@ -171,6 +180,10 @@ class FigureAgent(
                     result = await self._generate_code_figure(
                         fig_key, output_path, chart_prompt, caption,
                     )
+                    if isinstance(result, dict):
+                        result.setdefault("figure_kind", fig_spec.get("figure_kind", "data_chart"))
+                        result.setdefault("fig_type", "code_chart")
+                        result.setdefault("chart_type", chart_type)
                 return (fig_key, result)
             except Exception as exc:
                 logger.warning(
@@ -193,7 +206,7 @@ class FigureAgent(
 
         self.log(f"Figure generation complete: {len(figure_results)} new figures")
 
-        # All figures come from FIGURE_GEN only (exactly 4: 2 ai_image + 2 code_chart)
+        # All figures come from FIGURE_GEN; count and type are evidence-driven.
         merged = figure_results
         self.log(f"Total figures: {len(merged)}")
 
@@ -202,6 +215,29 @@ class FigureAgent(
         self.workspace.write_json("drafts/figure_output.json", output)
 
         return output
+
+
+    def _cleanup_stale_generated_figures(self) -> None:
+        """Delete stale generated figure images before a fresh FIGURE_GEN run."""
+        for rel_dir in ("figures", "drafts"):
+            directory = self.workspace.path / rel_dir
+            if not directory.exists():
+                continue
+            for path in directory.iterdir():
+                if not path.is_file():
+                    continue
+                name = path.name.lower()
+                if not name.startswith("fig"):
+                    continue
+                allowed_suffixes = {".png", ".pdf", ".svg"}
+                if rel_dir == "figures":
+                    allowed_suffixes.update({".py", ".txt", ".json", ".log"})
+                if path.suffix.lower() not in allowed_suffixes:
+                    continue
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    logger.warning("Failed to remove stale figure %s: %s", path, exc)
 
     # -----------------------------------------------------------------------
     # Figure planning
@@ -216,16 +252,19 @@ class FigureAgent(
             f"INSTRUCTIONS:\n"
             f"1. First, identify the research domain (nlp/cv/llm/multimodal/general_ml)\n"
             f"2. Follow the domain-specific figure convention from the system prompt\n"
-            f"3. Select EXACTLY 4 figures: 2 ai_image + 2 code_chart. No more, no fewer.\n"
-            f"   - Fig 1 & Fig 2: fig_type='ai_image' (Gemini-generated conceptual figures)\n"
-            f"   - Fig 3 & Fig 4: fig_type='code_chart' (matplotlib-generated data charts)\n"
-            f"4. Choose the most appropriate ai_image_type for architecture diagrams\n"
-            f"5. Every figure must use a DIFFERENT chart_type — NO duplicates\n\n"
+            f"3. Select 3-6 figures based on available evidence; do not force a fixed split.\n"
+            f"   - Include one method/framework ai_image for the Method section.\n"
+            f"   - Include result code_chart figures only when the evidence block contains usable numeric data.\n"
+            f"   - Prefer distinct result figures when data exists: main results vs measured baselines, ablation, optimization curve, complexity tradeoff, Pareto/frontier, or published baseline context.\n"
+            f"4. Use ai_image_type only for conceptual method/architecture/qualitative figures.\n"
+            f"5. Every code_chart must use a DIFFERENT chart_type -- NO duplicates.\n"
+            f"6. Plan an ablation chart ONLY if the evidence block contains real ablation numbers.\n"
+            f"7. Never plan a result chart from missing data or placeholders.\n\n"
             f"Return the figure plan as JSON with 'domain' and 'figures' fields."
         )
 
         try:
-            # Use figure_prompt config (text model), NOT figure_gen (Gemini image model)
+            # Use figure_prompt config (text model), NOT the image generation model.
             figure_prompt_config = self.config.for_stage("figure_prompt")
             result = await self.generate_json(
                 FIGURE_PLAN_SYSTEM, prompt, stage_override=figure_prompt_config
@@ -271,64 +310,146 @@ class FigureAgent(
             if not validated:
                 return self._default_figure_plan()
 
-            # Enforce exactly 4 figures: 2 ai_image + 2 code_chart
-            ai_figs = [f for f in validated if f.get("fig_type") == "ai_image"]
-            code_figs = [f for f in validated if f.get("fig_type") == "code_chart"]
+            validated = self._enforce_method_schematic(validated)
+            validated = self._limit_experiment_conceptual_figures(validated)
 
-            # Take exactly 2 of each; if not enough, default plan fills the gap
-            ai_figs = ai_figs[:2]
-            code_figs = code_figs[:2]
+            has_real_ablation = "--- Ablation Results [source: REAL EXPERIMENT] ---" in evidence_block
+            if not has_real_ablation:
+                validated = [
+                    f for f in validated
+                    if "ablation" not in str(f.get("fig_key", "")).lower()
+                    and "ablation" not in str(f.get("title", "")).lower()
+                    and "ablation" not in str(f.get("description", "")).lower()
+                ]
 
-            if len(ai_figs) < 2 or len(code_figs) < 2:
-                self.log(
-                    f"Figure plan has {len(ai_figs)} ai_image + {len(code_figs)} code_chart, "
-                    f"need 2+2; falling back to default plan"
-                )
-                return self._default_figure_plan()
-
-            validated = ai_figs + code_figs
-            return validated
+            has_real_results = "=== REAL EXPERIMENT RESULTS [source: REAL EXPERIMENT] ===" in evidence_block
+            has_published_context = "PUBLISHED LITERATURE" in evidence_block or "PUBLISHED BASELINE" in evidence_block
+            if not has_real_results:
+                validated = [
+                    f for f in validated
+                    if f.get("fig_type") == "ai_image"
+                    or (has_published_context and "published" in str(f.get("description", "") + f.get("title", "")).lower())
+                ]
+            if has_real_results:
+                joined = " ".join(
+                    str(f.get("fig_key", "")) + " " + str(f.get("title", "")) + " " + str(f.get("description", ""))
+                    for f in validated if isinstance(f, dict)
+                ).lower()
+                if not any(kw in joined for kw in ("complexity", "efficiency", "runtime", "cost")):
+                    validated.append({
+                        "fig_key": "fig5_complexity_profile",
+                        "fig_type": "code_chart",
+                        "figure_kind": "data_chart",
+                        "chart_type": "horizontal_bar",
+                        "title": "Complexity Profile",
+                        "description": "Measured selected features, nonzero coefficients, fit time, predict time, and random-forest tree-depth or split-feature metrics from structured experiment artifacts.",
+                        "caption": "Complexity profile comparing feature count, coefficient footprint, and runtime proxies using only measured experiment artifacts.",
+                    })
+            if not validated:
+                return self._default_figure_plan(has_real_results=has_real_results)
+            return validated[:6]
         except Exception as e:
             logger.warning("Figure planning failed: %s", e, exc_info=True)
             self.log(f"Figure planning failed ({e}), using default plan")
             return self._default_figure_plan()
 
-    def _default_figure_plan(self) -> list[dict]:
-        """Fallback figure plan — exactly 2 ai_image + 2 code_chart."""
-        return [
+    def _enforce_method_schematic(self, figures: list[dict]) -> list[dict]:
+        """Ensure Figure 1 is an image2-generated method schematic."""
+        schematic = {
+            "fig_key": "fig_method_schematic",
+            "fig_type": "ai_image",
+            "figure_kind": "schematic",
+            "ai_image_type": "system_overview",
+            "chart_type": None,
+            "title": "Method Overview",
+            "description": (
+                "Paper-facing schematic of the proposed method: input data, "
+                "preprocessing, core algorithmic components, optimization loop, "
+                "and evaluation outputs. Use the actual method and dataset names."
+            ),
+            "caption": "Overview of the proposed method and evaluation workflow.",
+        }
+        kept: list[dict] = []
+        for fig in figures:
+            if not isinstance(fig, dict):
+                continue
+            key = str(fig.get("fig_key", "")).lower()
+            title = str(fig.get("title", "") + " " + fig.get("description", "")).lower()
+            is_method_like = any(kw in key or kw in title for kw in (
+                "method", "framework", "overview", "architecture", "pipeline", "workflow", "schematic"
+            ))
+            if is_method_like and fig.get("fig_type") != "code_chart":
+                merged = {**schematic, **fig}
+                merged["fig_key"] = "fig_method_schematic"
+                merged["fig_type"] = "ai_image"
+                merged["figure_kind"] = "schematic"
+                # Force the paper's Figure 1 through the compact method-schematic
+                # prompt path; generic multi-stage prompts tend to generate cropped
+                # title-heavy diagrams.
+                merged["ai_image_type"] = "system_overview"
+                merged["chart_type"] = None
+                schematic = merged
+                continue
+            if key == "fig_method_schematic":
+                continue
+            kept.append(fig)
+        return [schematic] + kept
+
+
+    def _limit_experiment_conceptual_figures(self, figures: list[dict]) -> list[dict]:
+        """Keep one method schematic and reserve remaining slots for result charts."""
+        kept: list[dict] = []
+        method_seen = False
+        for fig in figures:
+            if not isinstance(fig, dict):
+                continue
+            if fig.get("fig_type") == "ai_image":
+                key = str(fig.get("fig_key", "")).lower()
+                kind = str(fig.get("figure_kind", "")).lower()
+                is_method = key == "fig_method_schematic" or kind == "schematic"
+                if is_method and not method_seen:
+                    kept.append(fig)
+                    method_seen = True
+                continue
+            kept.append(fig)
+        if not method_seen:
+            return self._enforce_method_schematic(kept)
+        return kept
+
+    def _default_figure_plan(self, has_real_results: bool = True) -> list[dict]:
+        """Fallback figure plan driven by available evidence."""
+        conceptual = [
             {
-                "fig_key": "fig1_framework_overview",
+                "fig_key": "fig_method_schematic",
                 "fig_type": "ai_image",
+                "figure_kind": "schematic",
                 "ai_image_type": "system_overview",
                 "chart_type": None,
-                "title": "Framework Overview",
-                "description": "Framework overview showing all key components and data flow.",
-                "caption": "Architecture of the proposed framework showing key components and data flow.",
+                "title": "Method Overview",
+                "description": "Paper-facing schematic showing the proposed method, key components, optimization loop, and data flow.",
+                "caption": "Overview of the proposed method and evaluation workflow.",
             },
+        ]
+        if not has_real_results:
+            return conceptual
+        return conceptual + [
             {
-                "fig_key": "fig2_qualitative_examples",
-                "fig_type": "ai_image",
-                "ai_image_type": "qualitative_comparison",
-                "chart_type": None,
-                "title": "Qualitative Examples",
-                "description": "Qualitative comparison of representative examples showing model behavior.",
-                "caption": "Qualitative examples illustrating how the proposed method processes inputs.",
-            },
-            {
-                "fig_key": "fig3_results_comparison",
+                "fig_key": "fig_main_results",
                 "fig_type": "code_chart",
+                "figure_kind": "data_chart",
                 "chart_type": "grouped_bar",
-                "title": "Main Results",
-                "description": "Comparison of baselines vs proposed method across benchmark datasets.",
-                "caption": "Performance comparison across benchmark datasets.",
+                "title": "Measured Main Results",
+                "description": "Measured proposed method and measured baseline results from results/metrics.json.",
+                "caption": "Measured performance comparison using only executed experiment outputs.",
             },
             {
-                "fig_key": "fig4_ablation",
+                "fig_key": "fig_optimization_complexity",
                 "fig_type": "code_chart",
-                "chart_type": "horizontal_bar",
-                "title": "Ablation Study",
-                "description": "Component contribution analysis showing the impact of removing each module.",
-                "caption": "Ablation study showing contribution of each component.",
+                "figure_kind": "data_chart",
+                "chart_type": "line",
+                "title": "Optimization and Complexity",
+                "description": "Optimization history, complexity metrics, or Pareto tradeoff from structured artifacts.",
+                "caption": "Optimization and efficiency evidence from machine-checkable experiment artifacts.",
             },
         ]
 

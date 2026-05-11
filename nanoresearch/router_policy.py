@@ -29,13 +29,18 @@ PRE_ROUTER_SYSTEM = (
     "Select a focused subset, not everything. "
     "When task constraints conflict with persona defaults, prioritize task constraints. "
     "Set update_memory and update_skill to null. "
-    "Keep prompt_plan under 30 words."
+    "Write prompt_plan as policy-level guidance for the downstream stage planner. "
+    "Include planning-relevant user constraints, retrieval usage, evidence policy, risk controls, and stage focus when useful. "
+    "Do not produce the final task output or a full low-level execution trace."
 )
 
 POST_ROUTER_SYSTEM = (
     "You are a hindsight-improved router for NanoResearch. "
     "Return JSON only with keys selected_memory_ids, selected_skill_ids, prompt_plan, update_memory, update_skill. "
     "Improve retrieval and prompt planning after feedback. "
+    "Write prompt_plan as policy-level guidance for the downstream stage planner. "
+    "Include only guidance that changes planning, evidence handling, user alignment, retrieval use, or risk control. "
+    "Do not produce the final task output or a full low-level execution trace. "
     "Write update_memory only for stable preferences or recurring constraints. "
     "Write update_skill only for reusable procedural rules. "
     "Keep each update to one short sentence."
@@ -165,10 +170,16 @@ class RouterPolicyRunner:
             if isinstance(value, list):
                 return [str(item) for item in value if str(item).strip()]
             return [str(value)]
+
+        def _normalize_prompt_plan(value: Any) -> str:
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False)
+            return " ".join(str(value or "").split())
+
         return {
             "selected_memory_ids": _ids(action.get("selected_memory_ids")),
             "selected_skill_ids": _ids(action.get("selected_skill_ids")),
-            "prompt_plan": " ".join(str(action.get("prompt_plan") or "").split()),
+            "prompt_plan": _normalize_prompt_plan(action.get("prompt_plan")),
             "update_memory": " ".join(str(action.get("update_memory") or "").split()) or None,
             "update_skill": " ".join(str(action.get("update_skill") or "").split()) or None,
         }
@@ -179,7 +190,10 @@ class RouterPolicyRunner:
         valid_skill_ids = {str(item.get("skill_id")) for item in router_x.get("candidate_skills", []) if item.get("skill_id")}
         action["selected_memory_ids"] = [item for item in action["selected_memory_ids"] if item in valid_memory_ids]
         action["selected_skill_ids"] = [item for item in action["selected_skill_ids"] if item in valid_skill_ids]
-        action["prompt_plan"] = " ".join(action["prompt_plan"].split()[:30]) or "Use retrieved context conservatively."
+        prompt_plan = " ".join(str(action.get("prompt_plan") or "").split())
+        if len(prompt_plan) > 4000:
+            prompt_plan = prompt_plan[:4000].rstrip()
+        action["prompt_plan"] = prompt_plan or "Use retrieved context conservatively."
         return action
 
     @staticmethod

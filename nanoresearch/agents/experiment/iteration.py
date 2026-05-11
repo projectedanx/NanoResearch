@@ -291,6 +291,14 @@ Output ONLY valid JSON array."""
                 if not isinstance(change, dict) or "path" not in change:
                     continue
                 file_path = change["path"]
+                normalized_file_path = str(file_path).replace("\\", "/").lstrip("/")
+                if normalized_file_path == "results" or normalized_file_path.startswith("results/"):
+                    logger.warning("Skipping iteration edit to generated result artifact: %s", file_path)
+                    continue
+                if normalized_file_path in {"nanoresearch_runner.py", "nanoresearch_runner.json"}:
+                    logger.warning("Skipping iteration edit to deterministic runner asset: %s", file_path)
+                    continue
+                file_path = normalized_file_path
                 # Security: prevent directory traversal
                 try:
                     (code_dir / file_path).resolve().relative_to(code_dir.resolve())

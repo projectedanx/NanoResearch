@@ -24,73 +24,75 @@ class _MultiReviewerMixin:
         """
         registry = ToolRegistry()
 
-        try:
-            from mcp_server.tools.arxiv_search import search_arxiv
-            from mcp_server.tools.openalex import search_openalex
+        sources = {str(src).lower() for src in getattr(self.config, "literature_sources", ["openalex"])}
+        use_openalex = "openalex" in sources
+        use_pwc = "paperswithcode" in sources or "pwc" in sources
+        use_web = "web" in sources or "web_search" in sources
 
-            async def _search_papers(query: str, max_results: int = 5) -> list[dict]:
-                results: list[dict] = []
-                try:
-                    results.extend(await search_arxiv(query, max_results=max_results))
-                except Exception as exc:
-                    logger.debug("arxiv search failed: %s", exc)
-                try:
-                    results.extend(await search_openalex(query, max_results=max_results))
-                except Exception as exc:
-                    logger.debug("openalex search failed: %s", exc)
-                return results
+        if use_openalex:
+            try:
+                from mcp_server.tools.openalex import search_openalex
 
-            registry.register(ToolDefinition(
-                name="search_papers",
-                description="Search for academic papers to verify SOTA claims and find latest results.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "max_results": {"type": "integer", "description": "Max papers", "default": 5},
+                async def _search_papers(query: str, max_results: int = 5) -> list[dict]:
+                    try:
+                        return await search_openalex(query, max_results=max_results)
+                    except Exception as exc:
+                        logger.debug("openalex search failed: %s", exc)
+                        return []
+
+                registry.register(ToolDefinition(
+                    name="search_papers",
+                    description="Search OpenAlex for academic papers to verify claims and find related work.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "max_results": {"type": "integer", "description": "Max papers", "default": 5},
+                        },
+                        "required": ["query"],
                     },
-                    "required": ["query"],
-                },
-                handler=_search_papers,
-            ))
-        except ImportError:
-            pass
+                    handler=_search_papers,
+                ))
+            except ImportError:
+                pass
 
-        try:
-            from mcp_server.tools.paperswithcode import get_sota
-            registry.register(ToolDefinition(
-                name="get_sota",
-                description="Query Papers With Code SOTA leaderboard for a task/dataset.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "task_id": {"type": "string", "description": "PapersWithCode task ID or name"},
-                        "dataset": {"type": "string", "description": "Dataset name", "default": ""},
+        if use_pwc:
+            try:
+                from mcp_server.tools.paperswithcode import get_sota
+                registry.register(ToolDefinition(
+                    name="get_sota",
+                    description="Query Papers With Code SOTA leaderboard for a task/dataset.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "task_id": {"type": "string", "description": "PapersWithCode task ID or name"},
+                            "dataset": {"type": "string", "description": "Dataset name", "default": ""},
+                        },
+                        "required": ["task_id"],
                     },
-                    "required": ["task_id"],
-                },
-                handler=lambda task_id, dataset="": get_sota(task_id, dataset=dataset),
-            ))
-        except ImportError:
-            pass
+                    handler=lambda task_id, dataset="": get_sota(task_id, dataset=dataset),
+                ))
+            except ImportError:
+                pass
 
-        try:
-            from mcp_server.tools.web_search import search_web
-            registry.register(ToolDefinition(
-                name="search_web",
-                description="Search the web for latest benchmark results and technical information.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "max_results": {"type": "integer", "description": "Max results", "default": 5},
+        if use_web:
+            try:
+                from mcp_server.tools.web_search import search_web
+                registry.register(ToolDefinition(
+                    name="search_web",
+                    description="Search the web for latest benchmark results and technical information.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "max_results": {"type": "integer", "description": "Max results", "default": 5},
+                        },
+                        "required": ["query"],
                     },
-                    "required": ["query"],
-                },
-                handler=lambda query, max_results=5: search_web(query, max_results=max_results),
-            ))
-        except ImportError:
-            pass
+                    handler=lambda query, max_results=5: search_web(query, max_results=max_results),
+                ))
+            except ImportError:
+                pass
 
         return registry if len(registry) > 0 else None
 

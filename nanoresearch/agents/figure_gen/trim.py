@@ -185,7 +185,7 @@ class _TrimMixin:
         """Send image to LLM; get back trim decision + code.
 
         Uses figure_code stage (vision-capable model like Claude Sonnet),
-        NOT figure_gen (image generation model like Gemini).
+        NOT figure_gen (configured image generation model).
         """
         # Use vision-capable model, not the image-generation model
         vision_config = self.config.for_stage("figure_code")
@@ -207,7 +207,7 @@ class _TrimMixin:
         """Send trimmed image to LLM for visual verification.
 
         Uses figure_code stage (vision-capable model like Claude Sonnet),
-        NOT figure_gen (image generation model like Gemini).
+        NOT figure_gen (configured image generation model).
         """
         # Use vision-capable model, not the image-generation model
         vision_config = self.config.for_stage("figure_code")

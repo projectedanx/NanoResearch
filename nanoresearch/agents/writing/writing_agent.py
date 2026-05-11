@@ -10,6 +10,7 @@ from nanoresearch.evolution.memory import MemoryType
 from ._types import ContributionContract, GroundingPacket
 from .import _check_global_consistency, PAPER_SECTIONS, PAPER_MODE_SECTIONS
 from .section_writer import SURVEY_SECTION_PROMPTS
+from .grounding_tables import _format_paper_number
 from nanoresearch.schemas.paper import PaperSkeleton, Section
 
 logger = logging.getLogger(__name__)
@@ -83,18 +84,30 @@ class _WritingAgentMixin:
         if grounding.evidence_gaps:
             self.log(f"Evidence gaps: {grounding.evidence_gaps}")
 
-        # Step 0b: Build cite key mapping from papers
+        # If execution produced no real metrics, write directly from the grounded
+        # context. Tool-augmented literature loops are useful for full papers, but
+        # in no-result smoke runs they can dominate runtime without adding usable
+        # evidence for the proposed method.
+        self._disable_writing_tools_for_stage = not grounding.has_real_results
+
+        # Step 0b: Expand and build cite key mapping from papers.
+        # Full-paper mode needs enough literature context for Introduction and
+        # Related Work, but these citations are never used as measured results.
+        ideation = await self._expand_citation_pool(ideation, blueprint, target_count=28)
         papers = ideation.get("papers", [])
         cite_keys = self._build_cite_keys(papers)
         bibtex = self._build_bibtex(papers, cite_keys)
 
-        # Build per-section context primitives (P0-A)
+        # Build per-section context primitives (P0-A). Keep this as a dict;
+        # section-specific builders index structured fields from it.
         core_ctx = self._build_core_context(ideation, blueprint, cite_keys)
         if adaptive_context:
-            core_ctx = f"{core_ctx}\n\n{adaptive_context}"
+            core_ctx["adaptive_context"] = adaptive_context
 
         # Title & abstract need a broad context
         title_abstract_ctx = self._ctx_introduction(core_ctx, grounding=grounding)
+        if adaptive_context:
+            title_abstract_ctx = f"{title_abstract_ctx}\n\n{adaptive_context}"
 
         # Step 1: Generate title
         title = await self._generate_title(title_abstract_ctx)
@@ -106,6 +119,20 @@ class _WritingAgentMixin:
 
         # Step 3: Build figures & table data from blueprint
         figure_blocks = self._build_figure_blocks(blueprint, figure_output)
+
+        # Step 3b: Expand router/adaptive guidance into a concrete writing plan.
+        paper_structure_plan = await self._generate_writing_stage_plan(
+            ideation=ideation,
+            blueprint=blueprint,
+            grounding=grounding,
+            figure_output=figure_output,
+            core_ctx=core_ctx,
+            adaptive_context=adaptive_context or "",
+            section_list=section_list,
+            template_format=template_format,
+            is_survey=is_survey,
+        )
+        self.log("Paper structure plan generated")
 
         # Step 4: Generate each section independently, embed figures inline
         placed_figures: set[str] = set()
@@ -126,7 +153,9 @@ class _WritingAgentMixin:
                 ctx_experiment_analysis: dict | None = None
                 ctx_experiment_summary: str = ""
             else:
-                instructions = section_instructions
+                instructions = self._augment_section_instructions_with_plan(
+                    section_instructions, heading, paper_structure_plan
+                )
                 ctx_experiment_results = experiment_results
                 ctx_experiment_status = experiment_status
                 ctx_experiment_analysis = experiment_analysis
@@ -143,6 +172,11 @@ class _WritingAgentMixin:
                 experiment_summary=ctx_experiment_summary,
                 prior_sections=_prior_content,
             )
+            if adaptive_context:
+                section_ctx = f"{section_ctx}\n\n{adaptive_context}"
+            plan_block = self._writing_plan_section_block(paper_structure_plan, heading)
+            if plan_block:
+                section_ctx = f"{section_ctx}\n\n{plan_block}"
 
             # Contribution contract is only for original research (not surveys)
             if not is_survey and contribution_contract and label != "sec:intro":
@@ -165,27 +199,13 @@ class _WritingAgentMixin:
             table_injection = ""
             if label == "sec:experiments":
                 table_parts = []
-                if grounding.main_table_latex:
-                    if grounding.has_real_results:
-                        header = "=== PRE-BUILT MAIN RESULTS TABLE (use this EXACTLY, do NOT rebuild) ==="
-                    else:
-                        header = (
-                            "=== SCAFFOLD MAIN RESULTS TABLE ===\n"
-                            "Use this table structure. Fill baseline cells with numbers from "
-                            "their original papers (cite sources). Keep proposed method cells as '--'."
-                        )
+                if grounding.main_table_latex and grounding.has_real_results:
+                    header = "=== PRE-BUILT MAIN RESULTS TABLE (use this EXACTLY, do NOT rebuild) ==="
                     table_parts.append(
                         header + "\n" + grounding.main_table_latex + "\n=== END PRE-BUILT TABLE ==="
                     )
-                if grounding.ablation_table_latex:
-                    if grounding.has_real_results:
-                        header = "=== PRE-BUILT ABLATION TABLE (use this EXACTLY, do NOT rebuild) ==="
-                    else:
-                        header = (
-                            "=== SCAFFOLD ABLATION TABLE ===\n"
-                            "Use this table structure. Keep all cells as '--' since no "
-                            "ablation data is available."
-                        )
+                if grounding.ablation_table_latex and grounding.has_real_results:
+                    header = "=== PRE-BUILT ABLATION TABLE (use this EXACTLY, do NOT rebuild) ==="
                     table_parts.append(
                         header + "\n" + grounding.ablation_table_latex + "\n=== END PRE-BUILT TABLE ==="
                     )
@@ -211,12 +231,12 @@ class _WritingAgentMixin:
                             "=== END BINDING ==="
                         )
                 elif grounding.has_real_results and grounding.final_metrics:
-                    metric_strs = [f"{k}={v}" for k, v in list(grounding.final_metrics.items())[:5]]
+                    metric_strs = [f"{k}={_format_paper_number(v)}" for k, v in list(grounding.final_metrics.items())[:5]]
                     conclusion_binding = (
                         "\n\n=== CONCLUSION RESULT BINDING ===\n"
                         f"Real metrics to reference: {', '.join(metric_strs)}\n"
                         "Mention key results quantitatively when summarizing contributions. "
-                        "Use the exact numbers above.\n"
+                        "Use the rounded display values above.\n"
                         "=== END BINDING ==="
                     )
                 elif not grounding.has_real_results:
@@ -237,15 +257,30 @@ class _WritingAgentMixin:
                 f"{conclusion_binding}"
             )
 
-            content = await self._generate_section(
-                context_with_figs, heading, instructions, prior_sections_summary
+            deterministic_experiments = (
+                label == "sec:experiments"
+                and grounding.has_real_results
+                and bool(grounding.main_table_latex)
             )
+            if deterministic_experiments:
+                content, composer_placed = self._compose_experiments_section(
+                    grounding, figure_blocks, blueprint, include_heading=False,
+                )
+                placed_figures.update(composer_placed)
+                self.log(
+                    f"  Experiments composed from verified artifacts "
+                    f"({len(composer_placed)} figures placed)"
+                )
+            else:
+                content = await self._generate_section(
+                    context_with_figs, heading, instructions, prior_sections_summary
+                )
 
-            # Post-generation table verification for Experiments
-            if label == "sec:experiments" and (
-                grounding.main_table_latex or grounding.ablation_table_latex
-            ):
-                content = self._verify_and_inject_tables(content, grounding, heading)
+                # Post-generation table verification for Experiments
+                if label == "sec:experiments" and (
+                    grounding.main_table_latex or grounding.ablation_table_latex
+                ):
+                    content = self._verify_and_inject_tables(content, grounding, heading)
 
             # Detect figures the LLM already embedded
             llm_placed_labels = re.findall(
@@ -268,10 +303,13 @@ class _WritingAgentMixin:
                         placed_figures.add(fk)
                         self.log(f"  LLM already included {fname} -> marking fig:{fk} as placed in {heading}")
 
-            # Smart figure placement
-            content, placed_figures = self._place_section_figures(
-                content, label, heading, figure_blocks, placed_figures,
-            )
+            # Smart figure placement. Artifact-composed Experiments already
+            # contains prose around each figure, so do not append more result
+            # figures after the composer has ordered them.
+            if not deterministic_experiments:
+                content, placed_figures = self._place_section_figures(
+                    content, label, heading, figure_blocks, placed_figures,
+                )
 
             sections.append(Section(heading=heading, label=label, content=content))
             snippet = content[:200].replace("\n", " ").strip()
@@ -293,14 +331,13 @@ class _WritingAgentMixin:
         if remaining:
             self.log(f"Fallback placement for {len(remaining)} unplaced figures: {remaining}")
             section_hints = {
-                "sec:intro": ("qualitative", "example", "motivation", "task",
-                              "illustration", "counterfactual", "demo", "teaser",
-                              "intuition", "sample"),
-                "sec:experiments": ("result", "comparison", "performance", "main", "latency",
-                                    "tradeoff", "trade_off", "efficiency", "scalab"),
+                "sec:experiments": ("result", "comparison", "performance", "main", "baseline",
+                                    "ablation", "latency", "runtime", "complexity", "pareto",
+                                    "history", "optimization", "tradeoff", "trade_off",
+                                    "efficiency", "scalab", "accuracy", "loss"),
                 "sec:method": ("architecture", "framework", "pipeline", "overview", "model",
-                               "diagram", "workflow"),
-                "sec:conclusion": ("ablation", "analysis", "error", "contradiction"),
+                               "diagram", "workflow", "schematic", "method", "task", "motivation", "teaser",
+                               "intuition", "illustration"),
             }
             for fk in remaining:
                 target_label = "sec:experiments"
@@ -350,11 +387,24 @@ class _WritingAgentMixin:
         latex_content = self._render_latex(skeleton)
         latex_content = self._sanitize_latex(latex_content)
 
+        structure_issues = self._audit_paper_structure_against_plan(
+            latex_content, paper_structure_plan
+        )
+        if structure_issues:
+            self.log(f"Paper structure plan audit: {len(structure_issues)} issue(s)")
+            for issue in structure_issues:
+                self.log(f"  - {issue}")
+
         # Step 6b-pre: Full-document figure dedup
         latex_content = self._dedup_full_doc_figures(latex_content)
 
         # Step 6b: Final LaTeX-level figure validation
         latex_content = self._validate_figures_in_latex(latex_content, figure_output)
+
+        # Step 6b.5: Ensure every placed figure has a natural LLM-written reference.
+        latex_content = await self._ensure_llm_figure_references(
+            latex_content, figure_output, grounding
+        )
 
         # Step 6c: Resolve missing citations
         bibtex = await self._resolve_missing_citations(latex_content, bibtex)
@@ -371,7 +421,9 @@ class _WritingAgentMixin:
 
         self._log_citation_report(citation_report)
 
-        # Step 6d.5: Cleanup unused BibTeX entries
+        # Step 6d.5: Ensure full-paper literature coverage, then cleanup unused BibTeX entries.
+        latex_content = self._ensure_minimum_citations(latex_content, ideation, cite_keys, min_refs=20)
+        bibtex = await self._resolve_missing_citations(latex_content, bibtex)
         bibtex = self._cleanup_unused_bibtex(latex_content, bibtex)
 
         # Step 6e: Global consistency check
@@ -399,7 +451,10 @@ class _WritingAgentMixin:
         result = {
             "tex_path": str(tex_path),
             "bib_path": str(bib_path),
+            "paper_tex": latex_content,
             "grounding": grounding.to_output_dict(),
+            "paper_structure_plan": paper_structure_plan,
+            "paper_structure_issues": structure_issues,
             "consistency_issues": consistency_issues,
         }
         if "pdf_path" in pdf_result:
@@ -436,6 +491,158 @@ class _WritingAgentMixin:
         self.log("Writing stage complete")
         return result
 
+
+    @staticmethod
+    def _latex_without_figure_blocks(latex_content: str) -> str:
+        return re.sub(
+            r"\\begin\{figure\*?\}.*?\\end\{figure\*?\}",
+            "",
+            latex_content,
+            flags=re.DOTALL,
+        )
+
+    @staticmethod
+    def _extract_figure_caption(figure_block: str) -> str:
+        match = re.search(r"\\caption\{(.*?)\}\s*\\label", figure_block, re.DOTALL)
+        if not match:
+            match = re.search(r"\\caption\{(.*?)\}", figure_block, re.DOTALL)
+        if not match:
+            return ""
+        return re.sub(r"\s+", " ", match.group(1)).strip()
+
+    @staticmethod
+    def _nearby_section_text(latex_content: str, position: int, max_chars: int = 1800) -> str:
+        start = max(0, position - max_chars)
+        end = min(len(latex_content), position + max_chars)
+        snippet = latex_content[start:end]
+        snippet = re.sub(r"\\begin\{figure\*?\}.*?\\end\{figure\*?\}", "", snippet, flags=re.DOTALL)
+        snippet = re.sub(r"\\begin\{table\*?\}.*?\\end\{table\*?\}", "", snippet, flags=re.DOTALL)
+        return re.sub(r"\s+", " ", snippet).strip()[:max_chars]
+
+    @staticmethod
+    def _figure_artifact_summary(figure_output: dict | None, grounding: GroundingPacket) -> str:
+        figures = (figure_output or {}).get("figures", {}) if isinstance(figure_output, dict) else {}
+        figure_lines: list[str] = []
+        if isinstance(figures, dict):
+            for key, data in list(figures.items())[:8]:
+                if not isinstance(data, dict):
+                    continue
+                figure_lines.append(
+                    f"- {key}: type={data.get('fig_type') or data.get('figure_type') or data.get('kind') or 'unknown'}; "
+                    f"caption={data.get('caption', '')}"
+                )
+        metric_lines: list[str] = []
+        for entry in grounding.main_results[:4]:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("method_name") or entry.get("variant_name") or entry.get("method") or entry.get("role") or "method"
+            bits: list[str] = []
+            for metric in entry.get("metrics", [])[:3]:
+                if isinstance(metric, dict) and metric.get("value") is not None:
+                    bits.append(f"{metric.get('metric_name', 'metric')}={_format_paper_number(metric.get('value'))}")
+            if bits:
+                metric_lines.append(f"- {name}: {', '.join(bits)}")
+        ablation_lines: list[str] = []
+        for entry in grounding.ablation_results[:3]:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("variant_name") or entry.get("method_name") or entry.get("method") or "variant"
+            bits: list[str] = []
+            for metric in entry.get("metrics", [])[:2]:
+                if isinstance(metric, dict) and metric.get("value") is not None:
+                    bits.append(f"{metric.get('metric_name', 'metric')}={_format_paper_number(metric.get('value'))}")
+            if bits:
+                ablation_lines.append(f"- {name}: {', '.join(bits)}")
+        return "\n".join([
+            "Figures:", *(figure_lines or ["- no figure metadata"]),
+            "Measured main results:", *(metric_lines or ["- no measured main results"]),
+            "Measured ablations:", *(ablation_lines or ["- no measured ablations"]),
+            "Evidence gaps:", *(f"- {gap}" for gap in grounding.evidence_gaps[:5]),
+        ])
+
+    async def _write_figure_reference_sentence(
+        self,
+        *,
+        label: str,
+        caption: str,
+        nearby_text: str,
+        artifact_summary: str,
+    ) -> str:
+        """Ask the configured writing model for a constrained figure-reference sentence."""
+        system_prompt = (
+            "You write concise LaTeX paper prose grounded strictly in provided artifacts. "
+            "Do not invent numbers, baselines, datasets, or claims."
+        )
+        prompt = f"""Write 1-2 natural LaTeX sentences that introduce and interpret this figure.
+
+Required exact reference: Figure~\\ref{{{label}}}
+Caption: {caption or 'No caption provided'}
+
+Artifact summary:
+{artifact_summary[:5000]}
+
+Nearby section text:
+{nearby_text[:1800]}
+
+Rules:
+- The output MUST include the exact string Figure~\\ref{{{label}}}.
+- Do not output a figure environment, table, bullet list, heading, or markdown.
+- Do not invent numeric values. If you mention numbers, they must appear in the artifact summary.
+- Keep it to at most 2 sentences.
+- Output only the sentences."""
+        try:
+            sentence = ((await self.generate(system_prompt, prompt, stage_override=self.config.revision)) or "").strip()
+        except Exception as exc:
+            self.log(f"  Figure reference LLM failed for {label}: {exc}")
+            return ""
+        sentence = re.sub(r"```(?:latex|tex)?\s*|```", "", sentence).strip()
+        sentence = re.sub(r"\s+", " ", sentence)
+        if f"Figure~\\ref{{{label}}}" not in sentence:
+            return ""
+        if re.search(r"\\begin\{|\\end\{|\\section\{|\\caption\{|\\includegraphics", sentence):
+            return ""
+        parts = re.split(r"(?<=[.!?])\s+", sentence)
+        return " ".join(parts[:2]).strip()
+
+    async def _ensure_llm_figure_references(
+        self,
+        latex_content: str,
+        figure_output: dict | None,
+        grounding: GroundingPacket,
+    ) -> str:
+        """Insert constrained GPT-written references for figure blocks not cited in prose."""
+        prose = self._latex_without_figure_blocks(latex_content)
+        figure_matches = list(re.finditer(
+            r"\\begin\{figure\*?\}.*?\\label\{(fig:[^}]+)\}.*?\\end\{figure\*?\}",
+            latex_content,
+            re.DOTALL,
+        ))
+        if not figure_matches:
+            return latex_content
+        artifact_summary = self._figure_artifact_summary(figure_output, grounding)
+        inserts: list[tuple[int, str, str]] = []
+        for match in figure_matches:
+            label = match.group(1)
+            ref_pat = re.compile(rf"\\(?:ref|autoref|cref)\{{{re.escape(label)}\}}")
+            if ref_pat.search(prose):
+                continue
+            caption = self._extract_figure_caption(match.group(0))
+            nearby = self._nearby_section_text(latex_content, match.start())
+            sentence = await self._write_figure_reference_sentence(
+                label=label,
+                caption=caption,
+                nearby_text=nearby,
+                artifact_summary=artifact_summary,
+            )
+            if sentence:
+                inserts.append((match.start(), label, sentence))
+            else:
+                self.log(f"  No safe LLM reference generated for {label}; leaving figure placement unchanged")
+        for pos, label, sentence in reversed(inserts):
+            latex_content = latex_content[:pos] + sentence + "\n\n" + latex_content[pos:]
+            self.log(f"  Inserted LLM-written reference for {label}")
+        return latex_content
+
     def _place_section_figures(
         self,
         content: str,
@@ -444,56 +651,46 @@ class _WritingAgentMixin:
         figure_blocks: dict[str, str],
         placed_figures: set[str],
     ) -> tuple[str, set[str]]:
-        """Smart figure placement for a section. Returns (content, placed_figures)."""
-        _arch_kws = ("overview", "framework", "pipeline", "architecture", "model")
-        _intro_kws = ("qualitative", "example", "motivation", "task",
-                       "illustration", "counterfactual", "demo", "teaser")
+        """Place figures by paper section; Intro and Conclusion stay figure-free."""
+        _arch_kws = ("overview", "framework", "pipeline", "architecture", "model", "workflow", "diagram", "schematic", "method")
+        _result_kws = (
+            "result", "comparison", "performance", "main", "baseline",
+            "ablation", "accuracy", "loss", "efficiency", "latency",
+            "runtime", "complexity", "pareto", "history", "optimization",
+            "tradeoff", "trade_off", "sparsity", "cost",
+        )
 
-        if label == "sec:intro":
-            intro_keywords = _intro_kws + ("intuition", "sample")
-            for fk in list(figure_blocks.keys()):
-                if fk in placed_figures:
-                    continue
-                if any(kw in fk for kw in intro_keywords):
-                    content += "\n\n" + figure_blocks[fk]
-                    placed_figures.add(fk)
-                    break
+        if label in {"sec:intro", "sec:conclusion"}:
+            return content, placed_figures
 
         if label == "sec:method":
-            arch_keywords = _arch_kws
             for fk in list(figure_blocks.keys()):
-                if fk not in placed_figures:
-                    continue
-                if not any(kw in fk for kw in arch_keywords):
-                    continue
-                fig_pattern = re.compile(
-                    r'\n*\\begin\{figure\*?\}.*?\\label\{fig:'
-                    + re.escape(fk)
-                    + r'\}.*?\\end\{figure\*?\}\n*',
-                    re.DOTALL,
-                )
-                match = fig_pattern.search(content)
-                if match and match.start() > 200:
-                    content = content[:match.start()] + content[match.end():]
+                if fk not in placed_figures and any(kw in fk.lower() for kw in _arch_kws):
                     content = figure_blocks[fk] + "\n\n" + content.lstrip("\n")
-                    self.log(f"  Moved LLM-placed fig:{fk} to top of Method")
-                break
+                    placed_figures.add(fk)
+                    self.log(f"  Placed method figure fig:{fk} at top of Method")
+                    break
 
+        if label == "sec:experiments":
             for fk in list(figure_blocks.keys()):
                 if fk in placed_figures:
                     continue
-                if any(kw in fk for kw in arch_keywords):
-                    content = figure_blocks[fk] + "\n\n" + content
+                key_l = fk.lower()
+                if any(kw in key_l for kw in _result_kws):
+                    content, inserted = self._insert_figure_near_ref(content, fk, figure_blocks[fk])
+                    if not inserted:
+                        content += "\n\n" + figure_blocks[fk]
                     placed_figures.add(fk)
-                    break
 
-        # Insert remaining figures near their \ref
+        # Insert remaining eligible figures near their references, but never leak
+        # result figures into Method or method figures into Experiments.
         for fk, blk in figure_blocks.items():
             if fk in placed_figures:
                 continue
-            if label != "sec:method" and any(kw in fk for kw in _arch_kws):
+            key_l = fk.lower()
+            if label == "sec:method" and any(kw in key_l for kw in _result_kws):
                 continue
-            if label != "sec:intro" and any(kw in fk for kw in _intro_kws):
+            if label == "sec:experiments" and any(kw in key_l for kw in _arch_kws):
                 continue
             content, inserted = self._insert_figure_near_ref(content, fk, blk)
             if inserted:

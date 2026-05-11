@@ -27,6 +27,7 @@ class EvoPipelineOrchestrator(DeepPipelineOrchestrator):
         config.skill_evolution_enabled = True
         config.same_router_hindsight_sdpo_enabled = True
         config.ram_data_collection_enabled = True
+        config.strict_experiment_contract = True
         super().__init__(workspace, config, progress_callback)
 
     def _get_initial_results(self, topic: str) -> dict[str, Any]:

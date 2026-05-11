@@ -266,7 +266,7 @@ pip install -e ".[dev]"
 ### 步骤二：配置
 
 > [!TIP]
-> 创建 `~/.nanobot/config.json`，替换 `base_url` 和 `api_key` 为你自己的 OpenAI 兼容 API 端点。
+> 创建 `~/.nanoresearch/config.json`，替换 `base_url` 和 `api_key` 为你自己的 OpenAI 兼容 API 端点。
 
 <details>
 <summary><b>查看完整配置示例</b></summary>
@@ -286,11 +286,15 @@ pip install -e ".[dev]"
     "planning": { "model": "your-model", "temperature": 0.2, "max_tokens": 16384, "timeout": 600.0 },
     "code_gen": { "model": "your-model", "temperature": 0.1, "max_tokens": 16384, "timeout": 600.0 },
     "writing": { "model": "your-model", "temperature": 0.4, "max_tokens": 16384, "timeout": 600.0 },
+    "figure_prompt": { "model": "pro/gpt-5.5", "temperature": 0.5, "max_tokens": 4096, "timeout": 300.0 },
+    "figure_code": { "model": "pro/gpt-5.5", "temperature": 0.1, "max_tokens": 16384, "timeout": 600.0 },
     "figure_gen": {
-      "model": "gemini-3.1-flash-image-preview",
-      "image_backend": "gemini",
+      "model": "gpt-image-2",
+      "image_backend": "openai",
+      "base_url": "https://your-image-endpoint/v1/",
+      "api_key": "your-image-api-key",
       "temperature": null,
-      "timeout": 300.0
+      "timeout": 600.0
     },
     "review": { "model": "your-model", "temperature": 0.3, "max_tokens": 16384, "timeout": 300.0 }
   }
@@ -311,10 +315,10 @@ nanoresearch run --topic "Adaptive Sparse Attention Mechanisms" --dry-run
 nanoresearch run --topic "Adaptive Sparse Attention Mechanisms" --format neurips2025 --verbose
 
 # 从断点恢复（若某阶段失败）
-nanoresearch resume --workspace ~/.nanobot/workspace/research/{session_id} --verbose
+nanoresearch resume --workspace ~/.nanoresearch/workspace/research/{session_id} --verbose
 
 # 导出论文
-nanoresearch export --workspace ~/.nanobot/workspace/research/{session_id} --output ./my_paper
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./my_paper
 ```
 
 ### 步骤四：预期输出
@@ -329,14 +333,14 @@ nanoresearch export --workspace ~/.nanobot/workspace/research/{session_id} --out
 |-------|------|---------|-------|
 | `ideation` | 文献检索 + 假说生成 | DeepSeek-V3.2 | DeepSeek-V3.2 |
 | `planning` | 实验设计 | Claude Sonnet 4.6 | DeepSeek-V3.2 |
-| `code_gen` | 代码生成 | GPT-5.2-Codex / Claude Opus 4.6 | DeepSeek-V3.2 |
-| `writing` | 论文撰写 | Claude Opus 4.6 / Claude Sonnet 4.6 | DeepSeek-V3.2 |
-| `figure_prompt` | 图表描述 | GPT-5.2 | DeepSeek-V3.2 |
-| `figure_code` | 图表绘制代码 | Claude Opus 4.6 | DeepSeek-V3.2 |
-| `figure_gen` | AI 架构图生成 | Gemini 3.1 Flash（原生图像生成） | Gemini 3.1 Flash |
-| `review` | 审稿 + 修订 | Claude Sonnet 4.6 / Gemini Flash | DeepSeek-V3.2 |
+| `code_gen` | 代码生成 | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `writing` | 论文撰写 | pro/gpt-5.5 / Claude Sonnet 4.6 | DeepSeek-V3.2 |
+| `figure_prompt` | 图表描述 | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `figure_code` | 图表绘制代码 | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `figure_gen` | AI 架构图生成 | gpt-image-2（OpenAI-compatible image API） | gpt-image-2 |
+| `review` | 审稿 + 修订 | DeepSeek-V3.2 / pro/gpt-5.5 | DeepSeek-V3.2 |
 
-> **说明**：所有文本模型通过单一 OpenAI 兼容端点访问。对于不支持 temperature 的模型（如 Codex、o 系列），设置 `temperature: null`。`figure_gen` 使用 Gemini 原生图像生成 API，需设置 `"image_backend": "gemini"`。
+> **说明**：所有文本模型通过单一 OpenAI 兼容端点访问。对于不支持 temperature 的模型（如 Codex、o 系列），设置 `temperature: null`。`figure_gen` 使用 OpenAI 兼容图像 API；推荐模型名为 `gpt-image-2`，并设置 `"image_backend": "openai"`。
 
 ### 💰 预估费用
 
@@ -528,7 +532,7 @@ nanoresearch --help
 nanoresearch run --topic "Adaptive Sparse Attention" --format neurips2025 --verbose
 
 # 导出并查看
-nanoresearch export --workspace ~/.nanobot/workspace/research/{session_id} --output ./paper_out
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_out
 ```
 
 > 仅生成论文（跳过实验）：在 config 中设置 `"skip_stages": ["SETUP", "CODING", "EXECUTION", "ANALYSIS"]`
@@ -561,7 +565,7 @@ my_paper/
 <summary><b>完整工作空间（含中间产物）</b></summary>
 
 ```text
-~/.nanobot/workspace/research/{session_id}/
+~/.nanoresearch/workspace/research/{session_id}/
 ├── manifest.json          # 流水线状态追踪
 ├── papers/                # 文献检索产物
 ├── plans/                 # 实验方案和分析
@@ -598,7 +602,7 @@ export FEISHU_APP_ID="cli_xxx"
 export FEISHU_APP_SECRET="xxx"
 ```
 
-或写入 `~/.nanobot/config.json`：
+或写入 `~/.nanoresearch/config.json`：
 
 ```json
 {
@@ -812,6 +816,29 @@ Create or refresh the user profile before evo runs with:
 ```bash
 nanoresearch init
 ```
+
+Recommended evo workflow from initialization to paper export:
+
+```bash
+# 1. Initialize/update user profile and preferences
+nanoresearch init
+
+# 2. Run the self-evolving full workflow
+nanoresearch run --pipeline evo --topic "your research topic" --format neurips --verbose
+
+# 3. Inspect machine-checkable experiment artifacts
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/configs/experiment_matrix.json
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/metrics.json
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/run_manifest.json
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/final_metrics.json
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/optimization_history.csv
+# ~/.nanoresearch/workspace/research/{session_id}/experiment/results/pareto_front.json
+
+# 4. Export LaTeX/PDF artifacts
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_export
+```
+
+The evo planning stage creates an experiment matrix with proposed, measured baselines, ablations, optimization/history, and complexity runs. Missing runs or artifacts are reported as degraded evidence rather than filled with synthetic values. Configure OpenAlex with `OPENALEX_API_KEY` when you need higher literature-search rate limits; no private keys should be committed to the repository.
 
 ## 📄 许可证
 

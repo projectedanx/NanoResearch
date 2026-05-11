@@ -33,6 +33,15 @@ class _ResultCollectorHelpersMixin:
             "training_log": [],
         }
 
+        config_matrix_path = code_dir / "configs" / "experiment_matrix.json"
+        if config_matrix_path.exists():
+            try:
+                matrix_payload = json.loads(config_matrix_path.read_text(encoding="utf-8"))
+                if isinstance(matrix_payload, dict):
+                    results["experiment_matrix_config"] = matrix_payload
+            except (OSError, json.JSONDecodeError):
+                results["experiment_matrix_config"] = {}
+
         metrics_path = code_dir / "results" / "metrics.json"
         if metrics_path.exists():
             parsed_metrics = ExperimentAgent._parse_metrics_json(code_dir)
@@ -82,8 +91,32 @@ class _ResultCollectorHelpersMixin:
                     results["metrics_artifact_materialized"] = True
                     results["metrics_artifact_path"] = materialized.get("artifact_path", "")
 
+        structured_json_files = {
+            "run_manifest.json": "run_manifest",
+            "final_metrics.json": "final_metrics",
+            "pareto_front.json": "pareto_front",
+        }
+        for filename, key in structured_json_files.items():
+            path = code_dir / "results" / filename
+            if path.exists():
+                try:
+                    parsed = json.loads(path.read_text(encoding="utf-8"))
+                    results[key] = parsed if isinstance(parsed, (dict, list)) else {}
+                except (OSError, json.JSONDecodeError):
+                    results[key] = {}
+
+        opt_csv = code_dir / "results" / "optimization_history.csv"
+        if opt_csv.exists():
+            try:
+                results["optimization_history_csv"] = opt_csv.read_text(encoding="utf-8", errors="replace")[:10000]
+            except OSError:
+                results["optimization_history_csv"] = ""
+
         for results_file in (code_dir / "results").glob("*"):
-            if results_file.is_file() and results_file.name not in ("metrics.json", "training_log.csv"):
+            if results_file.is_file() and results_file.name not in (
+                "metrics.json", "training_log.csv", "run_manifest.json",
+                "final_metrics.json", "optimization_history.csv", "pareto_front.json",
+            ):
                 try:
                     content = results_file.read_text(errors="replace")[:5000]
                     results[f"result_file_{results_file.name}"] = content
@@ -173,11 +206,28 @@ class _ResultCollectorHelpersMixin:
         stdout_log = str(result_payload.get("stdout_log") or "")
         stderr_log = str(result_payload.get("stderr_log") or "")
 
+        matrix_config = result_payload.get("experiment_matrix_config")
+        if not isinstance(matrix_config, dict):
+            matrix_config = {}
+        experiment_matrix = matrix_config.get("experiment_matrix")
+        if not isinstance(experiment_matrix, list):
+            experiment_matrix = []
+        required_artifacts = matrix_config.get("required_artifacts")
+        if not isinstance(required_artifacts, list):
+            required_artifacts = []
+        criteria = matrix_config.get("minimum_success_criteria")
+        if not isinstance(criteria, dict):
+            criteria = {}
+
         has_structured_metrics = cls._metrics_satisfy_contract(metrics)
         has_parsed_metrics = bool(parsed_metrics)
         has_training_trace = bool(training_log) or bool(training_log_csv)
         has_checkpoints = bool(checkpoints)
         has_result_files = bool(result_files)
+        has_run_manifest = isinstance(result_payload.get("run_manifest"), (dict, list)) and bool(result_payload.get("run_manifest"))
+        has_final_metrics = isinstance(result_payload.get("final_metrics"), dict) and bool(result_payload.get("final_metrics"))
+        has_optimization_history = bool(str(result_payload.get("optimization_history_csv") or "").strip())
+        has_pareto_front = isinstance(result_payload.get("pareto_front"), (dict, list)) and bool(result_payload.get("pareto_front"))
         failure_signals = cls._detect_contract_failure_signals(stdout_log, stderr_log)
         run_completed = final_status == "COMPLETED" or quick_eval_status in {"success", "partial"}
         has_recovered_artifact_support = (
@@ -202,12 +252,101 @@ class _ResultCollectorHelpersMixin:
             satisfied_signals.append("checkpoints")
         if has_result_files:
             satisfied_signals.append("result_files")
+        if has_run_manifest:
+            satisfied_signals.append("run_manifest")
+        if has_final_metrics:
+            satisfied_signals.append("final_metrics")
+        if has_optimization_history:
+            satisfied_signals.append("optimization_history")
+        if has_pareto_front:
+            satisfied_signals.append("pareto_front")
+
+        main_results = metrics.get("main_results") if isinstance(metrics.get("main_results"), list) else []
+        ablation_results = metrics.get("ablation_results") if isinstance(metrics.get("ablation_results"), list) else []
+        measured_baseline_count = 0
+        proposed_count = 0
+        for entry in main_results:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role") or "").lower()
+            is_proposed = bool(entry.get("is_proposed")) or role == "proposed"
+            has_metrics = bool(entry.get("metrics"))
+            if is_proposed and has_metrics:
+                proposed_count += 1
+            elif has_metrics:
+                measured_baseline_count += 1
+        measured_ablation_count = sum(
+            1 for entry in ablation_results
+            if isinstance(entry, dict) and bool(entry.get("metrics"))
+        )
+
+        required_run_ids = {
+            str(run.get("run_id") or "").strip()
+            for run in experiment_matrix
+            if isinstance(run, dict) and run.get("required") and str(run.get("run_id") or "").strip()
+        }
+        manifest_payload = result_payload.get("run_manifest")
+        manifest_entries = manifest_payload.get("runs") if isinstance(manifest_payload, dict) else manifest_payload
+        if not isinstance(manifest_entries, list):
+            manifest_entries = []
+        completed_run_ids = {
+            str(run.get("run_id") or "").strip()
+            for run in manifest_entries
+            if isinstance(run, dict)
+            and str(run.get("run_id") or "").strip()
+            and str(run.get("status") or "").lower() in {"success", "completed", "ok", "partial"}
+        }
+        missing_required_runs = sorted(required_run_ids - completed_run_ids)
+        if (
+            not run_completed
+            and has_structured_metrics
+            and required_run_ids
+            and not missing_required_runs
+        ):
+            # Generated runners sometimes fail their own over-strict post-check
+            # after writing complete measured artifacts. NanoResearch should use
+            # its own artifact contract as the source of truth.
+            run_completed = True
+
+        failed_runs = [
+            {
+                "run_id": str(run.get("run_id") or ""),
+                "status": str(run.get("status") or ""),
+                "failure_reason": str(run.get("failure_reason") or run.get("error") or ""),
+            }
+            for run in manifest_entries
+            if isinstance(run, dict) and str(run.get("status") or "").lower() not in {"success", "completed", "ok", "partial"}
+        ]
+
+        artifact_presence = {
+            "configs/experiment_matrix.json": bool(experiment_matrix),
+            "results/metrics.json": has_structured_metrics,
+            "results/run_manifest.json": has_run_manifest,
+            "results/final_metrics.json": has_final_metrics,
+            "results/optimization_history.csv": has_optimization_history,
+            "results/pareto_front.json": has_pareto_front,
+        }
+        missing_artifacts = [
+            str(name) for name in required_artifacts
+            if str(name) in artifact_presence and not artifact_presence[str(name)]
+        ]
 
         success_path = ""
         status = "failed"
-        if has_structured_metrics and not recovered_from and run_completed:
+        contract_counts_ok = (
+            proposed_count >= (1 if criteria.get("require_proposed", True) else 0)
+            and measured_baseline_count >= int(criteria.get("min_measured_baselines", 0) or 0)
+            and measured_ablation_count >= int(criteria.get("min_ablation_runs", 0) or 0)
+            and (not criteria.get("require_optimization_history", False) or has_optimization_history)
+            and (not criteria.get("require_complexity", False) or bool(metrics.get("complexity_metrics") or result_payload.get("final_metrics", {}).get("complexity_metrics") if isinstance(result_payload.get("final_metrics"), dict) else False))
+        )
+
+        if has_structured_metrics and not recovered_from and run_completed and not missing_artifacts and not missing_required_runs and contract_counts_ok:
             status = "success"
-            success_path = "structured_metrics_artifact"
+            success_path = "full_experiment_matrix_contract"
+        elif has_structured_metrics and not recovered_from and run_completed:
+            status = "partial"
+            success_path = "structured_metrics_artifact_degraded_contract"
         elif has_recovered_artifact_support:
             status = "success"
             success_path = "structured_metrics_recovered"
@@ -228,13 +367,22 @@ class _ResultCollectorHelpersMixin:
             success_path = "parsed_metrics_only"
 
         missing_signals: list[str] = []
-        if status == "failed":
-            if not (has_structured_metrics or has_parsed_metrics):
-                missing_signals.append("metrics_signal")
-            if not (has_training_trace or has_checkpoints or has_result_files or has_structured_metrics):
-                missing_signals.append("artifact_signal")
-            if failure_signals:
-                missing_signals.append("crash_free_logs")
+        if not (has_structured_metrics or has_parsed_metrics):
+            missing_signals.append("metrics_signal")
+        if not (has_training_trace or has_checkpoints or has_result_files or has_structured_metrics):
+            missing_signals.append("artifact_signal")
+        if missing_required_runs:
+            missing_signals.append("required_run_coverage")
+        if missing_artifacts:
+            missing_signals.append("required_artifacts")
+        if measured_baseline_count < int(criteria.get("min_measured_baselines", 0) or 0):
+            missing_signals.append("measured_baselines")
+        if measured_ablation_count < int(criteria.get("min_ablation_runs", 0) or 0):
+            missing_signals.append("ablation_runs")
+        if criteria.get("require_optimization_history", False) and not has_optimization_history:
+            missing_signals.append("optimization_history")
+        if failure_signals:
+            missing_signals.append("crash_free_logs")
 
         return {
             "version": "v1",
@@ -248,6 +396,16 @@ class _ResultCollectorHelpersMixin:
             "satisfied_signals": satisfied_signals,
             "missing_signals": missing_signals,
             "failure_signals": failure_signals,
+            "missing_required_runs": missing_required_runs,
+            "missing_artifacts": missing_artifacts,
+            "failed_runs": failed_runs,
+            "run_coverage": {
+                "required_run_count": len(required_run_ids),
+                "completed_run_count": len(completed_run_ids),
+                "measured_baseline_count": measured_baseline_count,
+                "measured_ablation_count": measured_ablation_count,
+                "proposed_count": proposed_count,
+            },
             "artifact_inventory": {
                 "structured_metrics": has_structured_metrics,
                 "parsed_metrics": has_parsed_metrics,
@@ -255,6 +413,10 @@ class _ResultCollectorHelpersMixin:
                 "training_log_csv": bool(training_log_csv),
                 "checkpoint_count": len(checkpoints),
                 "result_files": result_files,
+                "run_manifest": has_run_manifest,
+                "final_metrics": has_final_metrics,
+                "optimization_history_csv": has_optimization_history,
+                "pareto_front": has_pareto_front,
             },
         }
 

@@ -37,11 +37,16 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
     def _default_code_plan_files() -> list[dict[str, Any]]:
         return [
             {
-                "path": "train.py",
-                "description": "Main training script with argparse, training loop, evaluation, and support for --dry-run / --quick-eval",
+                "path": "run_experiments.py",
+                "description": "Unified entrypoint that loads configs/experiment_matrix.json, executes proposed/baseline/ablation/optimization/complexity runs, and writes all required result artifacts",
                 "is_entrypoint": True,
             },
-            {"path": "model.py", "description": "Model architecture definition"},
+            {
+                "path": "train.py",
+                "description": "Single-run training/evaluation implementation used by run_experiments.py; supports --dry-run / --quick-eval",
+                "is_entrypoint": False,
+            },
+            {"path": "model.py", "description": "Model and measured baseline definitions"},
             {"path": "dataset.py", "description": "Dataset loading and preprocessing"},
             {"path": "evaluate.py", "description": "Evaluation metrics and testing"},
             {"path": "config.py", "description": "Default hyperparameters and configuration"},
@@ -83,10 +88,10 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
             dependencies.append(dependency)
         if not dependencies:
             dependencies = [
-                "torch>=2.0.0",
                 "numpy>=1.24.0",
                 "pandas>=1.5.0",
                 "scikit-learn>=1.2.0",
+                "requests>=2.28.0",
             ]
 
         expected_output_files = [
@@ -96,9 +101,12 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
         ]
         if not expected_output_files:
             expected_output_files = [
+                "configs/experiment_matrix.json",
                 "results/metrics.json",
-                "results/training_log.csv",
-                "checkpoints/best_model.pt",
+                "results/run_manifest.json",
+                "results/final_metrics.json",
+                "results/optimization_history.csv",
+                "results/pareto_front.json",
             ]
 
         normalized = {
@@ -107,7 +115,7 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
             "python_version": str(plan.get("python_version") or "3.10").strip(),
             "dependencies": dependencies,
             "files": normalized_files,
-            "train_command": str(plan.get("train_command") or "python train.py").strip(),
+            "train_command": str(plan.get("train_command") or "python run_experiments.py --matrix configs/experiment_matrix.json --output results").strip(),
             "expected_output_files": expected_output_files,
         }
         return normalized
@@ -129,6 +137,14 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
 
         code_dir = self.workspace.path / "experiment"
         code_dir.mkdir(exist_ok=True)
+        (code_dir / "configs").mkdir(exist_ok=True)
+        matrix_path = code_dir / "configs" / "experiment_matrix.json"
+        matrix_payload = {
+            "experiment_matrix": experiment_blueprint.get("experiment_matrix", []),
+            "required_artifacts": experiment_blueprint.get("required_artifacts", []),
+            "minimum_success_criteria": experiment_blueprint.get("minimum_success_criteria", {}),
+        }
+        matrix_path.write_text(json.dumps(matrix_payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
         # Step 1: Design the experiment code plan
         code_plan = await self._design_code_plan(
@@ -138,14 +154,23 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
         self.log(f"Code plan: {len(code_plan.get('files', []))} files")
 
         # Step 2: Generate each file (parallel for speed)
-        valid_specs = [s for s in code_plan.get("files", []) if isinstance(s, dict) and s.get("path")]
+        valid_specs = []
+        seen_spec_paths: set[str] = set()
+        for spec in code_plan.get("files", []):
+            if not isinstance(spec, dict) or not spec.get("path"):
+                continue
+            normalized_path = self._normalize_project_file_path(str(spec.get("path") or ""))
+            if not normalized_path or normalized_path in seen_spec_paths:
+                continue
+            seen_spec_paths.add(normalized_path)
+            valid_specs.append({**spec, "path": normalized_path})
         self.log(f"  Generating {len(valid_specs)} files in parallel")
         contents = await asyncio.gather(*(
             self._generate_file(spec, code_plan, experiment_blueprint, setup_output)
             for spec in valid_specs
         ))
 
-        generated_files = []
+        generated_files = ["configs/experiment_matrix.json"]
         for spec, content in zip(valid_specs, contents):
             filepath = spec["path"]
             full_path = code_dir / filepath
@@ -158,6 +183,13 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
         await self._fix_import_mismatches(code_dir, code_plan)
 
         # Step 2c: Validate generated code only references existing data paths
+        contract_runner_updates = await self._enforce_contract_runner(
+            code_dir, code_plan, experiment_blueprint, setup_output
+        )
+        for updated in contract_runner_updates:
+            if updated not in generated_files:
+                generated_files.append(updated)
+
         path_issues = self._validate_data_paths(
             code_dir,
             setup_output.get("downloaded_resources", []),
@@ -182,7 +214,22 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
                 (code_dir / filename).write_text(content, encoding="utf-8")
                 self.log(f"Re-generated {filename} to fix invalid paths: {bad_paths}")
 
-        original_train_command = code_plan.get("train_command", "python train.py")
+            contract_runner_updates = await self._enforce_contract_runner(
+                code_dir, code_plan, experiment_blueprint, setup_output
+            )
+            for updated in contract_runner_updates:
+                if updated not in generated_files:
+                    generated_files.append(updated)
+
+        original_train_command = str(code_plan.get("train_command", "python train.py") or "python train.py").strip()
+        if (code_dir / "run_experiments.py").exists():
+            # The execution contract is relative to code_dir. Model-generated
+            # absolute sibling workspaces make artifacts invisible to the
+            # collector and must not be accepted for release runs.
+            original_train_command = (
+                "python run_experiments.py --matrix configs/experiment_matrix.json --output results"
+            )
+        code_plan["train_command"] = original_train_command
         runner_assets = ensure_project_runner(code_dir, original_train_command)
         generated_files.extend([RUNNER_SCRIPT_NAME, RUNNER_CONFIG_NAME])
         self.log("Generated deterministic execution runner")
@@ -200,7 +247,7 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
         self.log("Generated SLURM script")
 
         # Step 4: Generate requirements.txt
-        requirements = await self._generate_requirements(code_plan)
+        requirements = await self._generate_requirements(code_plan, code_dir=code_dir)
         (code_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
         generated_files.append("requirements.txt")
 
@@ -225,6 +272,27 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
         self.workspace.write_json("plans/coding_output.json", result)
         return result
 
+    @staticmethod
+    def _normalize_project_file_path(raw_path: str) -> str:
+        path = str(raw_path or "").strip().replace("\\", "/")
+        if not path:
+            return ""
+        candidate = Path(path)
+        if candidate.is_absolute():
+            parts = list(candidate.parts)
+            if "experiment" in parts:
+                idx = len(parts) - 1 - parts[::-1].index("experiment")
+                path = "/".join(parts[idx + 1:])
+            else:
+                path = candidate.name
+        path = path.lstrip("/")
+        safe_parts = []
+        for part in Path(path).parts:
+            if part in {"", ".", ".."}:
+                continue
+            safe_parts.append(part)
+        return "/".join(safe_parts)
+
     async def _design_code_plan(
         self, topic: str, blueprint: dict, setup: dict,
         adaptive_context: str = "",
@@ -243,14 +311,16 @@ class CodingAgent(_CodingHelpersMixin, BaseResearchAgent):
             "You are a senior ML research engineer designing a runnable experiment project. "
             "Based on the experiment blueprint and analysis of existing codebases, "
             "design a complete, runnable training project. The code must:\n"
-            "1. Actually run on a GPU cluster via SLURM or locally\n"
-            "2. Use PyTorch and standard ML libraries\n"
-            "3. Include proper training loop, evaluation, checkpointing\n"
+            "1. Actually run locally or on a GPU cluster via SLURM when needed\n"
+            "2. Use the lightest standard ML stack that matches the blueprint; "
+            "for tabular/sklearn experiments prefer numpy, pandas, scikit-learn, "
+            "and only use PyTorch when the proposed method truly requires neural training\n"
+            "3. Include proper training loop, evaluation, and result logging\n"
             "4. Log metrics to a results file (JSON or CSV)\n"
             "5. Support command-line arguments for hyperparameters\n"
             "6. If a dataset is listed as AVAILABLE below, use its exact path\n"
             "7. If a dataset is NOT AVAILABLE, the code MUST download it at runtime "
-            "using `datasets.load_dataset()`, `torchvision.datasets`, `urllib`, `requests`, "
+            "using `datasets.load_dataset()`, `urllib`, `requests`, or task-appropriate loaders "
             "or `git clone` — whichever is appropriate. NEVER generate synthetic/random/fake data.\n"
             "8. All runtime downloads MUST go to the Data directory path below (use as root/cache_dir)\n"
             "9. All file paths must be ABSOLUTE, never relative like ./data/\n"
@@ -281,10 +351,9 @@ Available cloned repos: {json.dumps([r['name'] for r in cloned_repos])}
 IMPORTANT — DATA HANDLING:
 - For AVAILABLE datasets above: load them from their exact paths.
 - For NOT AVAILABLE datasets: your code MUST download them at runtime using
-  `datasets.load_dataset()`, `torchvision.datasets`, `urllib`, or `requests`.
+  `datasets.load_dataset()`, `urllib`, `requests`, or task-appropriate loaders.
   Save ALL downloads to the Data directory listed above (as root/cache_dir).
   Example: `datasets.load_dataset('dataset_name', cache_dir=args.data_dir)`
-  Example: `torchvision.datasets.CIFAR10(root=args.data_dir, download=True)`
   NEVER use default cache like `~/.cache/` or `./data/`.
 - NEVER generate synthetic/random/fake data as a substitute. If the exact dataset
   is unavailable from any public source, use a real alternative from HuggingFace Hub.
@@ -298,12 +367,18 @@ Design a runnable project. Return JSON:
   "project_name": "experiment_name",
   "description": "one-line description",
   "python_version": "3.10",
-  "dependencies": ["torch", "transformers", ...],
+  "dependencies": ["numpy", "pandas", "scikit-learn", "requests", ...],
+  "train_command": "python run_experiments.py --matrix configs/experiment_matrix.json --output results",
   "files": [
     {{
-      "path": "train.py",
-      "description": "Main training script with argparse, training loop, evaluation, and support for --dry-run / --quick-eval",
+      "path": "run_experiments.py",
+      "description": "Unified matrix runner with --matrix, --output, --dry-run, and --quick-eval",
       "is_entrypoint": true
+    }},
+    {{
+      "path": "train.py",
+      "description": "Single-run implementation used by run_experiments.py",
+      "is_entrypoint": false
     }},
     {{
       "path": "model.py",
@@ -322,8 +397,8 @@ Design a runnable project. Return JSON:
       "description": "Default hyperparameters and configuration"
     }}
   ],
-  "train_command": "python train.py --config config.py --epochs 10",
-  "expected_output_files": ["results/metrics.json", "results/training_log.csv", "checkpoints/best_model.pt"]
+  "train_command": "python run_experiments.py --matrix configs/experiment_matrix.json --output results",
+  "expected_output_files": ["configs/experiment_matrix.json", "results/metrics.json", "results/run_manifest.json", "results/final_metrics.json", "results/optimization_history.csv", "results/pareto_front.json"]
 }}"""
 
         if adaptive_context:
@@ -397,8 +472,11 @@ Project structure: {json.dumps(all_files)}
 Method: {json.dumps(blueprint.get('proposed_method', {}), indent=2)[:1000]}
 Datasets: {json.dumps(blueprint.get('datasets', []), indent=2)[:500]}
 Metrics: {json.dumps(blueprint.get('metrics', []), indent=2)[:300]}
+Experiment matrix: {json.dumps(blueprint.get('experiment_matrix', []), indent=2)[:2500]}
+Required artifacts: {json.dumps(blueprint.get('required_artifacts', []), indent=2)}
+Minimum success criteria: {json.dumps(blueprint.get('minimum_success_criteria', {}), indent=2)}
 Dependencies: {json.dumps(code_plan.get('dependencies', []))}
-Train command: {code_plan.get('train_command', 'python train.py')}
+Train command: {code_plan.get('train_command', 'python run_experiments.py --matrix configs/experiment_matrix.json --output results')}
 
 === ALREADY DOWNLOADED DATA & MODELS (use these exact paths) ===
 {resource_paths}
@@ -407,14 +485,22 @@ Train command: {code_plan.get('train_command', 'python train.py')}
 
 IMPORTANT:
 - Write COMPLETE, RUNNABLE code. Every function must be fully implemented.
-- The training script must save metrics to results/metrics.json after each epoch.
-- The training script must save the best model checkpoint.
+- run_experiments.py must read configs/experiment_matrix.json and execute every required run in experiment_matrix.
+- It must honor `--matrix` and `--output` exactly; when called with `--output results`, all result artifacts must be written under the current project directory's `results/` folder.
+- Do NOT hard-code a sibling workspace/project output directory as the default output path.
+- It must save measured proposed and measured baseline runs into results/metrics.json under main_results.
+- It must save measured ablation runs into results/metrics.json under ablation_results.
+- It must save run status/failure_reason/runtime/config/artifact_paths into results/run_manifest.json.
+- It must save final summary into results/final_metrics.json, optimization trace into results/optimization_history.csv, and Pareto summary into results/pareto_front.json.
+- Do NOT add hard-coded required metrics beyond each run spec's `metrics` list and `minimum_success_criteria.required_metrics`; optional metrics may be omitted or set to null, but must not fail a completed run.
+- Do NOT require train_loss/validation_loss for non-neural sklearn experiments unless those exact metric names appear in the blueprint's required metrics.
+- The training/evaluation implementation should save the best model checkpoint when applicable.
 - Use argparse for CLI arguments with DEFAULTS pointing to the data/model paths above.
 - Include a results/ directory for outputs.
 - Log training progress (loss, metrics) at each epoch.
 - Handle both training and evaluation in the same script or via flags.
-- The entry script MUST support `--dry-run` for a lightweight pipeline sanity check.
-- The entry script MUST support `--quick-eval` for a tiny end-to-end experiment that writes `results/metrics.json`.
+- The unified entry script run_experiments.py MUST support `--dry-run` for a lightweight pipeline sanity check.
+- The unified entry script run_experiments.py MUST support `--quick-eval` for a tiny end-to-end matrix execution that writes all required result artifacts.
 - In `--quick-eval` mode, force a very small subset / a few epochs so it finishes quickly on a local machine.
 - CRITICAL: All class/function names used in imports between files MUST be consistent.
   For example, if train.py does `from dataset import MyDataset`, then dataset.py MUST define `class MyDataset`.
@@ -423,7 +509,6 @@ IMPORTANT:
 - For AVAILABLE datasets: use their exact file paths as argparse defaults.
 - For NOT AVAILABLE datasets: write code to DOWNLOAD them at runtime.
   * Prefer `datasets.load_dataset('dataset_name', cache_dir=args.data_dir)` from HuggingFace Hub.
-  * Or use `torchvision.datasets.XXX(root=args.data_dir, download=True)`.
   * Or use `urllib.request.urlretrieve()` / `requests.get()` for direct URLs.
   * Or use `subprocess.run(['git', 'clone', url, target_dir])` for GitHub repos.
   * Save ALL downloads to args.data_dir (the Data directory path above).

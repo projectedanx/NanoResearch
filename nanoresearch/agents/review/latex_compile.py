@@ -138,11 +138,11 @@ class _LaTeXCompileMixin:
             logger.warning("WritingAgent._sanitize_latex failed (%s), applying inline fixes", exc)
             # Inline fallback: at minimum fix the most critical issues
             import re as _re
-            # [H]/[h]/[h!] -> [t!] (preserve * for column-spanning variants)
-            tex = _re.sub(r'\\begin\{figure\}\s*\[[Hh]!?\]', r'\\begin{figure}[t!]', tex)
-            tex = _re.sub(r'\\begin\{figure\*\}\s*\[[Hh]!?\]', r'\\begin{figure*}[t!]', tex)
-            tex = _re.sub(r'\\begin\{table\}\s*\[[Hh]!?\]', r'\\begin{table}[t!]', tex)
-            tex = _re.sub(r'\\begin\{table\*\}\s*\[[Hh]!?\]', r'\\begin{table*}[t!]', tex)
+            # [H]/[h]/[h!] -> flexible placement (preserve * for column-spanning variants)
+            tex = _re.sub(r'\\begin\{figure\}\s*\[[Hh]!?\]', r'\\begin{figure}[htbp]', tex)
+            tex = _re.sub(r'\\begin\{figure\*\}\s*\[[Hh]!?\]', r'\\begin{figure*}[tbp]', tex)
+            tex = _re.sub(r'\\begin\{table\}\s*\[[Hh]!?\]', r'\\begin{table}[htbp]', tex)
+            tex = _re.sub(r'\\begin\{table\*\}\s*\[[Hh]!?\]', r'\\begin{table*}[tbp]', tex)
             # Unicode dashes
             tex = tex.replace("\u2014", "---").replace("\u2013", "--")
             tex = tex.replace("\u201c", "``").replace("\u201d", "''")
@@ -178,6 +178,16 @@ class _LaTeXCompileMixin:
         result: dict = {}
         seen_error_sigs: set[str] = set()
         for attempt in range(MAX_LATEX_FIX_ATTEMPTS + 1):
+            # Compile only sanitized TeX; review revisions can reintroduce
+            # internal trace wording or poor float placement.
+            try:
+                current = tex_path.read_text(encoding="utf-8")
+                sanitized = self._sanitize_revised_tex(current)
+                if sanitized != current:
+                    tex_path.write_text(sanitized, encoding="utf-8")
+                    self.log("  Applied pre-compile paper-quality sanitization")
+            except OSError:
+                pass
             try:
                 result = await compile_pdf(str(tex_path))
                 if not isinstance(result, dict):

@@ -47,7 +47,7 @@ class _InstallMixin:
             proc_result = await loop.run_in_executor(
                 None,
                 lambda: subprocess.run(
-                    [python, "-m", "pip", "install", *filtered_specs, "--quiet"],
+                    [python, "-m", "pip", "install", "--prefer-binary", *filtered_specs, "--quiet"],
                     cwd=str(code_dir),
                     capture_output=True,
                     text=True,
@@ -144,7 +144,7 @@ class _InstallMixin:
                 proc_result = await loop.run_in_executor(
                     None,
                     lambda: subprocess.run(
-                        [python, "-m", "pip", "install", *install_args, "--quiet"],
+                        [python, "-m", "pip", "install", "--prefer-binary", *install_args, "--quiet"],
                         cwd=str(code_dir),
                         capture_output=True,
                         text=True,

@@ -75,6 +75,9 @@ import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.patheffects as pe
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch, Rectangle, Patch
+from matplotlib.lines import Line2D
 import numpy as np
 try:
     import seaborn as sns

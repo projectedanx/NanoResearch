@@ -47,6 +47,26 @@ class _LocalRunnerDryRunMixin:
                 status = "success" if cycle == 1 else "fixed"
                 return {"status": status, "attempts": cycle, **result}
 
+            artifact_probe = helper._collect_quick_eval_results(code_dir, result, attempt=cycle)
+            if self._metrics_satisfy_contract(artifact_probe.get("metrics")):
+                self.log(
+                    "Dry-run command returned non-zero, but measured result artifacts "
+                    "satisfy the NanoResearch contract; accepting artifacts."
+                )
+                artifact_probe["status"] = "fixed"
+                artifact_probe["attempts"] = cycle
+                artifact_probe["accepted_despite_nonzero_exit"] = True
+                self._append_remediation_entry(
+                    remediation_ledger,
+                    kind="artifact_contract_override",
+                    status="accepted",
+                    scope="local_dry_run",
+                    round_number=round_number,
+                    cycle=cycle,
+                    details={"returncode": result.get("returncode")},
+                )
+                return artifact_probe
+
             if cycle >= max_fix_cycles:
                 break
 

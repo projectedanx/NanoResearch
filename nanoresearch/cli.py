@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -66,6 +67,53 @@ console = Console()
 _DEFAULT_ROOT = Path.home() / ".nanoresearch" / "workspace" / "research"
 
 
+_SECRET_PATTERNS = (
+    re.compile(r"([?&](?:api_?key|key|token|access_token)=)[^&\s\"]+", re.IGNORECASE),
+    re.compile(r"(Authorization:\s*Bearer\s+)[^\s\"]+", re.IGNORECASE),
+)
+
+
+def _redact_log_text(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    redacted = value
+    for pattern in _SECRET_PATTERNS:
+        redacted = pattern.sub(r"\1<redacted>", redacted)
+    return redacted
+
+
+class _SecretRedactionFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = _redact_log_text(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(_redact_log_text(arg) for arg in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {k: _redact_log_text(v) for k, v in record.args.items()}
+        return True
+
+
+_ORIGINAL_LOG_RECORD_FACTORY = logging.getLogRecordFactory()
+_SECRET_LOG_RECORD_FACTORY_INSTALLED = False
+
+
+def _install_secret_log_record_factory() -> None:
+    global _SECRET_LOG_RECORD_FACTORY_INSTALLED
+    if _SECRET_LOG_RECORD_FACTORY_INSTALLED:
+        return
+
+    def _factory(*args, **kwargs):
+        record = _ORIGINAL_LOG_RECORD_FACTORY(*args, **kwargs)
+        record.msg = _redact_log_text(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(_redact_log_text(arg) for arg in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {k: _redact_log_text(v) for k, v in record.args.items()}
+        return record
+
+    logging.setLogRecordFactory(_factory)
+    _SECRET_LOG_RECORD_FACTORY_INSTALLED = True
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"nanoresearch v{__version__}")
@@ -104,11 +152,25 @@ def _ensure_nanoresearch_home() -> None:
 
 def _setup_logging(verbose: bool = False) -> None:
     level = logging.DEBUG if verbose else logging.INFO
+    _install_secret_log_record_factory()
+    handler = logging.StreamHandler(sys.stderr)
+    handler.addFilter(_SecretRedactionFilter())
+    redaction_filter = _SecretRedactionFilter()
+    handler.addFilter(redaction_filter)
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stderr)],
+        handlers=[handler],
+        force=True,
     )
+    root_logger = logging.getLogger()
+    root_logger.addFilter(redaction_filter)
+    for existing_handler in root_logger.handlers:
+        existing_handler.addFilter(redaction_filter)
+    # httpx logs full request URLs at INFO, including query parameters.
+    # Keep third-party request traces quiet; NanoResearch logs stage progress separately.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def _load_config_safe(config_path: Path | None) -> ResearchConfig:

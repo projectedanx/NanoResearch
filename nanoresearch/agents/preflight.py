@@ -348,7 +348,7 @@ class PreflightChecker(_PreflightHelpersMixin):
     # 3. Data references — warning
     # ------------------------------------------------------------------
     def check_data_references(self) -> PreflightResult:
-        """Scan code for data paths/URLs; check for synthetic data fallback."""
+        """Scan code for data paths/URLs; check for forbidden fabricated-data fallback."""
         warnings: list[str] = []
         hardcoded_paths: list[str] = []
 
@@ -373,7 +373,7 @@ class PreflightChecker(_PreflightHelpersMixin):
                 + "; ".join(hardcoded_paths[:3])
             )
 
-        # Check that --quick-eval has a synthetic/fallback path
+        # Check that --quick-eval does not rely on fabricated data fallback
         main_py = self.code_dir / "main.py"
         if main_py.exists():
             try:
@@ -385,7 +385,7 @@ class PreflightChecker(_PreflightHelpersMixin):
                 )
                 if has_quick_eval and not has_synthetic:
                     warnings.append(
-                        "main.py has --quick-eval but no obvious synthetic data fallback"
+                        "main.py has --quick-eval but no obvious small real-data subset fallback"
                     )
             except OSError:
                 pass
@@ -400,7 +400,7 @@ class PreflightChecker(_PreflightHelpersMixin):
                     "hardcoded_paths": hardcoded_paths[:10],
                     "suggested_fixes": [
                         "Replace hardcoded absolute data paths with config-driven or relative paths.",
-                        "Add a synthetic or dummy-data fallback for quick-eval mode.",
+                        "Add a small real-data subset or documented skip path for quick-eval mode.",
                     ],
                 },
             )

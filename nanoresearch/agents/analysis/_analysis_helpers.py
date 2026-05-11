@@ -295,7 +295,7 @@ Metrics definitions: {json.dumps(metrics, indent=2)[:300]}
 
 IMPORTANT:
 - Use the REAL numbers from the experiment results above
-- If some metrics are missing, label them as unavailable and do not fabricate replacement values
+- If required metrics are missing, skip that series/chart and do not fabricate replacement values
 - Save as '{fig_id}.png' (dpi=300) and '{fig_id}.pdf'
 - Use plt.tight_layout()
 - Make the figure 8x5 inches

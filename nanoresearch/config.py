@@ -81,28 +81,28 @@ class ResearchConfig(BaseModel):
     )
     code_gen: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="gpt-5.2-codex", temperature=None,
+            model="pro/gpt-5.5", temperature=0.1,
             max_tokens=16384, timeout=600.0,
         )
     )
     figure_prompt: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="claude-sonnet-4-6-20250514", temperature=0.5,
+            model="pro/gpt-5.5", temperature=0.5,
             max_tokens=4096, timeout=300.0,
         )
     )
     figure_code: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="claude-sonnet-4-6-20250514", temperature=0.1,
+            model="pro/gpt-5.5", temperature=0.1,
             max_tokens=16384, timeout=600.0,
         )
     )
     figure_gen: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="gemini-3.1-flash-preview-image-generation",
-            image_backend="gemini",
+            model="gpt-image-2",
+            image_backend="openai",
             temperature=None,
-            timeout=300.0,
+            timeout=600.0,
         )
     )
     evidence_extraction: StageModelConfig = Field(
@@ -113,7 +113,7 @@ class ResearchConfig(BaseModel):
     )
     review: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="gemini-3.1-flash-lite-preview",
+            model=DEFAULT_MODEL,
             temperature=0.3,
             max_tokens=16384,
             timeout=300.0,
@@ -121,7 +121,7 @@ class ResearchConfig(BaseModel):
     )
     revision: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="gemini-3-pro-preview-thinking",
+            model=DEFAULT_MODEL,
             temperature=0.3,
             max_tokens=16384,
             timeout=600.0,
@@ -131,7 +131,9 @@ class ResearchConfig(BaseModel):
     template_format: str = "neurips"
     max_retries: int = 2
     quick_eval_timeout: int = 3600  # seconds for quick-eval execution (60 min — includes dataset download)
+    strict_experiment_contract: bool = False
     execution_profile: ExecutionProfile = ExecutionProfile.LOCAL_QUICK
+    auto_upgrade_to_cluster_on_no_gpu: bool = False
     writing_mode: WritingMode = WritingMode.HYBRID
     writing_tool_max_rounds: int = 3  # was 10 — each round resends full context, very expensive
     auto_create_env: bool = True
@@ -141,6 +143,11 @@ class ResearchConfig(BaseModel):
     runtime_auto_install_max_packages: int = 50
     runtime_auto_install_max_nltk_downloads: int = 50
     runtime_auto_install_allowlist: list[str] = Field(default_factory=list)
+
+    # Literature/search backends. Keep OpenAlex as the default public-release
+    # backend; users can opt into arXiv/Semantic Scholar/PapersWithCode/web
+    # in config.json when they have API keys and accept those dependencies.
+    literature_sources: list[str] = Field(default_factory=lambda: ["openalex"])
 
     # Adaptive memory and skill evolution settings
     memory_enabled: bool = True
@@ -165,7 +172,7 @@ class ResearchConfig(BaseModel):
     router_sdpo_model_name: str = ""
     router_sdpo_base_url: str = ""
     router_sdpo_api_key: str = ""
-    router_sdpo_max_new_tokens: int = 256
+    router_sdpo_max_new_tokens: int = 512
     router_sdpo_temperature: float = 0.0
     router_sdpo_timeout: float = 120.0
 
@@ -255,6 +262,8 @@ class ResearchConfig(BaseModel):
                 )
             research = data.get("research", {})
 
+        cls._overlay_private_endpoints(research)
+
         try:
             cfg = cls.model_validate(research)
         except Exception as exc:
@@ -283,6 +292,56 @@ class ResearchConfig(BaseModel):
                 "them in ~/.nanoresearch/config.json under 'research'."
             )
         return cfg
+
+    @staticmethod
+    def _overlay_private_endpoints(research: dict) -> None:
+        """Apply local-only endpoint routing from ~/.nanoresearch/private_endpoints.json.
+
+        This file is intentionally outside the repository and is never included
+        in config snapshots. It lets local runs route code/chart prompt stages to
+        a private text gateway and image generation to a separate image gateway.
+        Missing or malformed files are ignored so public users can rely on the
+        normal config.json/env-var path.
+        """
+        private_path = Path.home() / ".nanoresearch" / "private_endpoints.json"
+        if not private_path.is_file():
+            return
+        try:
+            data = json.loads(private_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.warning("Ignoring invalid private endpoints file %s: %s", private_path, exc)
+            return
+        if not isinstance(data, dict):
+            return
+
+        text_cfg = data.get("text_newapi")
+        if isinstance(text_cfg, dict):
+            base_url = str(text_cfg.get("base_url") or "").strip()
+            api_key = str(text_cfg.get("api_key") or "").strip()
+            models = text_cfg.get("models") if isinstance(text_cfg.get("models"), dict) else {}
+            for stage in ("ideation", "planning", "experiment", "evidence_extraction", "code_gen", "figure_code", "figure_prompt", "writing", "review", "revision"):
+                stage_cfg = research.setdefault(stage, {})
+                if not isinstance(stage_cfg, dict):
+                    stage_cfg = {}
+                    research[stage] = stage_cfg
+                if base_url:
+                    stage_cfg["base_url"] = base_url
+                if api_key:
+                    stage_cfg["api_key"] = api_key
+                model = str(models.get(stage) or models.get("default_text") or "").strip()
+                if model:
+                    stage_cfg["model"] = model
+
+        image_cfg = data.get("image_service")
+        if isinstance(image_cfg, dict):
+            stage_cfg = research.setdefault("figure_gen", {})
+            if not isinstance(stage_cfg, dict):
+                stage_cfg = {}
+                research["figure_gen"] = stage_cfg
+            for key in ("base_url", "api_key", "model", "image_backend"):
+                value = str(image_cfg.get(key) or "").strip()
+                if value:
+                    stage_cfg[key] = value
 
     def for_stage(self, stage_name: str) -> StageModelConfig:
         """Return model config for the given stage name."""

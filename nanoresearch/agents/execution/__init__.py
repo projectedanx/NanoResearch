@@ -56,10 +56,15 @@ class ExecutionAgent(
 
         cluster_available = bool(slurm_script) and shutil.which("sbatch") is not None
 
-        # Auto-detect: if profile is local_quick but no local GPU and SLURM is
-        # available, automatically upgrade to cluster execution.
+        # Keep local_quick local by default. Users can opt into this convenience
+        # upgrade explicitly, but public release smoke tests should not fail just
+        # because a machine has sbatch configured for a different partition.
         use_cluster = self.config.prefers_cluster_execution()
-        if not use_cluster and cluster_available:
+        if (
+            not use_cluster
+            and cluster_available
+            and getattr(self.config, "auto_upgrade_to_cluster_on_no_gpu", False)
+        ):
             try:
                 import torch as _torch
                 has_gpu = _torch.cuda.is_available() and _torch.cuda.device_count() > 0
@@ -88,6 +93,17 @@ class ExecutionAgent(
                 remediation_ledger=remediation_ledger,
             )
             self.workspace.write_json("plans/execution_output.json", final_result)
+            if (
+                getattr(self.config, "strict_experiment_contract", False)
+                and str(final_result.get("experiment_status") or "") != "success"
+            ):
+                contract = final_result.get("result_contract") if isinstance(final_result.get("result_contract"), dict) else {}
+                raise RuntimeError(
+                    "Strict experiment contract failed in local execution: "
+                    f"status={final_result.get('experiment_status')}, "
+                    f"missing={contract.get('missing_signals', [])}, "
+                    f"failures={contract.get('failure_signals', [])}"
+                )
             return final_result
 
         # Pre-flight: fix common SLURM issues before first submission
@@ -293,7 +309,9 @@ class ExecutionAgent(
 
             # If job succeeded or we've exhausted debug rounds, stop
             if final_status == "COMPLETED":
-                if experiment_status in {"success", "partial"}:
+                strict_contract = bool(getattr(self.config, "strict_experiment_contract", False))
+                accepted_statuses = {"success"} if strict_contract else {"success", "partial"}
+                if experiment_status in accepted_statuses:
                     self.log(
                         f"Job completed with result contract status {experiment_status} "
                         f"after {debug_round} debug round(s)"
@@ -381,4 +399,15 @@ class ExecutionAgent(
         final_result["remediation_ledger_path"] = self._persist_remediation_ledger(remediation_ledger)
         final_result["repair_snapshot_journal_path"] = self._repair_snapshot_journal_path()
         self.workspace.write_json("plans/execution_output.json", final_result)
+        if (
+            getattr(self.config, "strict_experiment_contract", False)
+            and str(final_result.get("experiment_status") or "") != "success"
+        ):
+            contract = final_result.get("result_contract") if isinstance(final_result.get("result_contract"), dict) else {}
+            raise RuntimeError(
+                "Strict experiment contract failed in cluster execution: "
+                f"status={final_result.get('experiment_status')}, "
+                f"missing={contract.get('missing_signals', [])}, "
+                f"failures={contract.get('failure_signals', [])}"
+            )
         return final_result

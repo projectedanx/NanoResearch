@@ -154,6 +154,7 @@ SURVEY_SECTION_PROMPTS: dict[str, str] = {
 from nanoresearch.agents.tools import ToolDefinition, ToolRegistry
 from nanoresearch.agents.writing.latex_assembler import _strip_llm_thinking
 from nanoresearch.skill_prompts import get_writing_system_prompt, ABSTRACT_SYSTEM, TITLE_SYSTEM
+from .grounding_tables import _format_paper_number
 
 ABSTRACT_SYSTEM_PROMPT = ABSTRACT_SYSTEM
 TITLE_SYSTEM_PROMPT = TITLE_SYSTEM
@@ -183,43 +184,66 @@ class _SectionWriterMixin:
                 return rest[0].upper() + rest[1:]
         return text
 
+    @staticmethod
+    def _strip_abstract_environment(text: str) -> str:
+        """Keep templates responsible for abstract wrapping; LLMs often add it anyway."""
+        cleaned = _strip_llm_thinking(text or "").strip()
+        cleaned = re.sub(r"^```(?:latex|tex)?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"```$", "", cleaned).strip()
+        cleaned = re.sub(r"^\\begin\{abstract\}", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\\end\{abstract\}$", "", cleaned, flags=re.IGNORECASE).strip()
+        return cleaned
+
     async def _build_writing_tools(self) -> ToolRegistry | None:
         """Build a ToolRegistry with search tools for writing.
 
         Returns None if no tools could be registered (missing deps).
         """
         registry = ToolRegistry()
-        try:
-            from mcp_server.tools.arxiv_search import search_arxiv
-            from mcp_server.tools.openalex import search_openalex
+        sources = {str(src).lower() for src in getattr(self.config, "literature_sources", ["openalex"])}
+        use_openalex = "openalex" in sources
+        use_arxiv = "arxiv" in sources
 
-            async def _search_papers(query: str, max_results: int = 5) -> list[dict]:
-                results: list[dict] = []
-                try:
-                    results.extend(await search_arxiv(query, max_results=max_results))
-                except Exception as exc:
-                    logger.debug("arxiv search failed: %s", exc)
-                try:
-                    results.extend(await search_openalex(query, max_results=max_results))
-                except Exception as exc:
-                    logger.debug("openalex search failed: %s", exc)
-                return results
+        if use_openalex or use_arxiv:
+            try:
+                search_openalex = None
+                search_arxiv = None
+                if use_openalex:
+                    from mcp_server.tools.openalex import search_openalex as _search_openalex
+                    search_openalex = _search_openalex
+                if use_arxiv:
+                    from mcp_server.tools.arxiv_search import search_arxiv as _search_arxiv
+                    search_arxiv = _search_arxiv
 
-            registry.register(ToolDefinition(
-                name="search_papers",
-                description="Search for academic papers by query. Returns paper metadata including title, authors, abstract, year.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query for papers"},
-                        "max_results": {"type": "integer", "description": "Max papers to return", "default": 5},
+                async def _search_papers(query: str, max_results: int = 5) -> list[dict]:
+                    results: list[dict] = []
+                    if search_openalex is not None:
+                        try:
+                            results.extend(await search_openalex(query, max_results=max_results))
+                        except Exception as exc:
+                            logger.debug("openalex search failed: %s", exc)
+                    if search_arxiv is not None:
+                        try:
+                            results.extend(await search_arxiv(query, max_results=max_results))
+                        except Exception as exc:
+                            logger.debug("arxiv search failed: %s", exc)
+                    return results
+
+                registry.register(ToolDefinition(
+                    name="search_papers",
+                    description="Search configured academic literature sources for paper metadata.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query for papers"},
+                            "max_results": {"type": "integer", "description": "Max papers to return", "default": 5},
+                        },
+                        "required": ["query"],
                     },
-                    "required": ["query"],
-                },
-                handler=_search_papers,
-            ))
-        except ImportError:
-            pass
+                    handler=_search_papers,
+                ))
+            except ImportError:
+                pass
 
         try:
             from mcp_server.tools.openalex import search_openalex as _search_openalex_detail
@@ -238,23 +262,25 @@ class _SectionWriterMixin:
         except ImportError:
             pass
 
-        try:
-            from mcp_server.tools.web_search import search_web
-            registry.register(ToolDefinition(
-                name="search_web",
-                description="Search the web for recent information, benchmarks, or technical details.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "max_results": {"type": "integer", "description": "Max results", "default": 5},
+        use_web = "web" in sources or "web_search" in sources
+        if use_web:
+            try:
+                from mcp_server.tools.web_search import search_web
+                registry.register(ToolDefinition(
+                    name="search_web",
+                    description="Search the web for recent information, benchmarks, or technical details.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "max_results": {"type": "integer", "description": "Max results", "default": 5},
+                        },
+                        "required": ["query"],
                     },
-                    "required": ["query"],
-                },
-                handler=lambda query, max_results=5: search_web(query, max_results=max_results),
-            ))
-        except ImportError:
-            pass
+                    handler=lambda query, max_results=5: search_web(query, max_results=max_results),
+                ))
+            except ImportError:
+                pass
 
         # RAG tool: read full-text from a paper's PDF
         try:
@@ -331,12 +357,12 @@ class _SectionWriterMixin:
     ) -> str:
         number_binding = ""
         if grounding and grounding.has_real_results and grounding.final_metrics:
-            metric_strs = [f"{k}={v}" for k, v in list(grounding.final_metrics.items())[:5]]
+            metric_strs = [f"{k}={_format_paper_number(v)}" for k, v in list(grounding.final_metrics.items())[:5]]
             number_binding = (
                 "\n\nIMPORTANT — RESULT NUMBERS IN ABSTRACT:\n"
                 f"Real experiment metrics: {', '.join(metric_strs)}\n"
                 "You MUST mention at least the primary metric in the abstract. "
-                "Use the exact value from above. Do NOT fabricate different numbers."
+                "Use the rounded display value from above. Do NOT fabricate different numbers."
             )
         elif grounding and not grounding.has_real_results:
             number_binding = (
@@ -347,24 +373,7 @@ class _SectionWriterMixin:
         prompt = f"Based on the following research context, write the abstract:\n\n{context}{number_binding}"
         try:
             abstract = ((await self.generate(ABSTRACT_SYSTEM_PROMPT, prompt)) or "").strip()
-            # Enforce word limit: if too long, ask LLM to compress (not hard-truncate)
-            words = abstract.split()
-            if len(words) > 260:
-                logger.info("Abstract too long (%d words), asking LLM to compress to ~250", len(words))
-                compress_prompt = (
-                    f"The following abstract is {len(words)} words. "
-                    f"Compress it to 200-250 words while preserving ALL key information: "
-                    f"the problem, method name, all components, dataset names, and metric values. "
-                    f"Do NOT drop the experimental results sentence. "
-                    f"Output ONLY the compressed abstract text.\n\n{abstract}"
-                )
-                compressed = ((await self.generate(ABSTRACT_SYSTEM_PROMPT, compress_prompt)) or "").strip()
-                if compressed and 100 < len(compressed.split()) <= 280:
-                    abstract = compressed
-                    logger.info("Abstract compressed to %d words", len(abstract.split()))
-                else:
-                    logger.warning("LLM compression returned bad length (%d words), keeping original",
-                                   len((compressed or "").split()))
+            abstract = self._strip_abstract_environment(abstract)
             return abstract
         except Exception as e:
             logger.warning("Abstract generation failed, using fallback: %s", e)
@@ -405,8 +414,12 @@ FORMAT RULES:
 - Use bare ~ for non-breaking space before \\ref (e.g. Figure~\\ref{{fig:arch}}),
   NOT \\~{{}} which renders as a tilde accent character in LaTeX."""
 
-        # Use tool-augmented generation for key sections
-        if self.config.should_use_writing_tools(heading):
+        # Use tool-augmented generation for key sections unless the active
+        # writing pass explicitly disabled tools for a no-result fallback draft.
+        if (
+            not getattr(self, "_disable_writing_tools_for_stage", False)
+            and self.config.should_use_writing_tools(heading)
+        ):
             try:
                 tools = await self._build_writing_tools()
                 if tools is not None:

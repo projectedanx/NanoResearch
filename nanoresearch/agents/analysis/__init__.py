@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import math
@@ -56,6 +58,9 @@ class AnalysisAgent(_AnalysisHelpersMixin, BaseResearchAgent):
         analysis = await self._analyze_results(execution_output, experiment_blueprint)
         if not isinstance(analysis, dict):
             analysis = {}
+        analysis = self._sanitize_analysis_against_raw_metrics(analysis, execution_output)
+        normalized_evidence = self._normalize_structured_evidence(execution_output, experiment_blueprint)
+        analysis.update(normalized_evidence)
         analysis.setdefault("execution_output", execution_output)
         self.log(f"Analysis complete: {list(analysis.keys())}")
 
@@ -140,35 +145,20 @@ Analyze these results. Return JSON:
     "baseline1_name": {{"metric1": value_or_null, "metric2": value_or_null}},
     "baseline2_name": {{"metric1": value_or_null, "metric2": value_or_null}}
   }},
-  "ablation_results": [
-    {{
-      "variant_name": "Full model",
-      "metrics": [{{"metric_name": "Accuracy", "value": 0.85}}]
-    }},
-    {{
-      "variant_name": "w/o Component A",
-      "metrics": [{{"metric_name": "Accuracy", "value": 0.79}}]
-    }}
-  ],
+  "ablation_results": [],
   "training_dynamics": "Description of training curve behavior...",
   "key_findings": ["finding1", "finding2", ...],
   "limitations": ["limitation1", ...],
   "figures_to_generate": [
     {{
       "figure_id": "fig_training_curve",
-      "title": "Training Loss Curve",
+      "title": "Training Curve",
       "type": "line",
       "data_source": "training_log"
     }},
     {{
       "figure_id": "fig_results_comparison",
-      "title": "Results Comparison with Baselines",
-      "type": "bar",
-      "data_source": "metrics"
-    }},
-    {{
-      "figure_id": "fig_ablation",
-      "title": "Ablation Study",
+      "title": "Results Summary",
       "type": "bar",
       "data_source": "metrics"
     }}
@@ -177,22 +167,204 @@ Analyze these results. Return JSON:
 
 IMPORTANT:
 - For comparison_with_baselines, return a DICT mapping method names to their metrics.
-  Include our method's actual numbers. For baselines, use their expected_performance
-  from the blueprint if available, or null if unknown.
-- For ablation_results, include the full model and variants with/without each component.
-  If the experiment only ran the full model, create ablation entries by estimating
-  component contributions from the training dynamics and key findings.
-  Each variant MUST have concrete numeric values, not null.
+  Include our method's actual numbers from Metrics JSON. For baselines, report numeric values only if they appear in Metrics JSON; otherwise use null.
+  Do not copy blueprint expected_performance into experimental results.
+- For ablation_results, use ONLY ablation variants explicitly present in Metrics JSON under ablation_results.
+  If Metrics JSON has no ablation_results, return an empty list. Do not create an ablation table or engineering-status sentence.
+  Mention the narrower evaluation scope only in paper-facing limitation language if it affects the claims.
+  Never estimate, infer, or invent ablation values from training dynamics, blueprint components, or expected results.
 - NEVER use "N/A" as a numeric value. Use null for truly unknown values.
 - figures_to_generate MUST contain at most 3 figures.
 - NEVER propose diagnostic/failure/error figures. No figure titled "failure diagnosis",
-  "error analysis", "debug", etc. Every figure must present positive research content
-  (training curves, results comparison, ablation study).
-- If the experiment failed, still propose the same 3 standard figure types
-  (training_curve, results_comparison, ablation) — the code will handle data fallback."""
+  "error analysis", "debug", etc.
+- Propose an ablation figure only when real ablation_results are present in Metrics JSON.
+- If the experiment failed or a result category is absent, do not invent fallback data; omit the corresponding result table/figure.
+- If the absence materially affects the scientific claim, describe the evaluation scope in natural academic prose rather than using run-log or engineering-status wording."""
 
         result = await self.generate_json(system_prompt, user_prompt)
         return result if isinstance(result, dict) else {}
+
+
+    @staticmethod
+    def _normalize_structured_evidence(execution_output: dict, blueprint: dict) -> dict:
+        """Normalize machine-generated artifacts into stable paper-facing fields.
+
+        This function never fabricates missing values. Published baselines from
+        the blueprint remain separate from measured baseline runs.
+        """
+        raw_metrics = execution_output.get("metrics", {})
+        if not isinstance(raw_metrics, dict):
+            raw_metrics = {}
+
+        def flat_metrics(value: Any) -> dict[str, float]:
+            return _flatten_metric_list(value)
+
+        measured_results: list[dict[str, Any]] = []
+        measured_baselines: list[dict[str, Any]] = []
+        for entry in raw_metrics.get("main_results", []) if isinstance(raw_metrics.get("main_results"), list) else []:
+            if not isinstance(entry, dict):
+                continue
+            item = {
+                "run_id": str(entry.get("run_id") or ""),
+                "method": str(entry.get("method_name") or entry.get("method") or ""),
+                "dataset": str(entry.get("dataset") or ""),
+                "metrics": flat_metrics(entry.get("metrics", {})),
+                "source": "results/metrics.json",
+            }
+            if not item["metrics"]:
+                continue
+            role = str(entry.get("role") or "").lower()
+            if entry.get("is_proposed") or role == "proposed":
+                measured_results.append(item)
+            else:
+                measured_baselines.append(item)
+
+        ablation_results: list[dict[str, Any]] = []
+        for entry in raw_metrics.get("ablation_results", []) if isinstance(raw_metrics.get("ablation_results"), list) else []:
+            if not isinstance(entry, dict):
+                continue
+            metrics = flat_metrics(entry.get("metrics", {}))
+            if not metrics:
+                continue
+            ablation_results.append({
+                "run_id": str(entry.get("run_id") or ""),
+                "variant_name": str(entry.get("variant_name") or entry.get("method") or ""),
+                "metrics": metrics,
+                "source": "results/metrics.json",
+            })
+
+        optimization_history: list[dict[str, Any]] = []
+        csv_text = str(execution_output.get("optimization_history_csv") or "").strip()
+        if csv_text:
+            try:
+                for row in csv.DictReader(io.StringIO(csv_text)):
+                    clean_row: dict[str, Any] = {}
+                    for key, value in row.items():
+                        if key is None:
+                            continue
+                        raw = str(value or "").strip()
+                        if raw == "":
+                            clean_row[str(key)] = raw
+                            continue
+                        try:
+                            clean_row[str(key)] = float(raw)
+                        except ValueError:
+                            clean_row[str(key)] = raw
+                    if clean_row:
+                        optimization_history.append(clean_row)
+            except csv.Error:
+                optimization_history = []
+
+        final_metrics = execution_output.get("final_metrics")
+        if not isinstance(final_metrics, dict):
+            final_metrics = {}
+        complexity_metrics = raw_metrics.get("complexity_metrics")
+        if not isinstance(complexity_metrics, dict):
+            complexity_metrics = final_metrics.get("complexity_metrics") if isinstance(final_metrics.get("complexity_metrics"), dict) else {}
+
+        pareto = execution_output.get("pareto_front")
+        pareto_summary = pareto if isinstance(pareto, (dict, list)) else {}
+
+        result_contract = execution_output.get("result_contract")
+        if not isinstance(result_contract, dict):
+            result_contract = {}
+
+        published_baseline_results: list[dict[str, Any]] = []
+        for baseline in blueprint.get("baselines", []) if isinstance(blueprint.get("baselines"), list) else []:
+            if not isinstance(baseline, dict):
+                continue
+            perf = baseline.get("expected_performance") if isinstance(baseline.get("expected_performance"), dict) else {}
+            provenance = baseline.get("performance_provenance") if isinstance(baseline.get("performance_provenance"), dict) else {}
+            for metric, value in perf.items():
+                if not isinstance(value, (int, float)) or not math.isfinite(value):
+                    continue
+                published_baseline_results.append({
+                    "method": str(baseline.get("name") or ""),
+                    "dataset": "",
+                    "metric": str(metric),
+                    "value": float(value),
+                    "source": str(provenance.get(metric) or baseline.get("reference_paper_id") or ""),
+                    "provenance": "published_literature_context",
+                })
+
+        return {
+            "measured_results": measured_results,
+            "measured_baselines": measured_baselines,
+            "ablation_results": ablation_results,
+            "optimization_history": optimization_history,
+            "complexity_metrics": complexity_metrics if isinstance(complexity_metrics, dict) else {},
+            "pareto_summary": pareto_summary,
+            "missing_required_runs": list(result_contract.get("missing_required_runs") or []),
+            "missing_artifacts": list(result_contract.get("missing_artifacts") or []),
+            "failed_runs": list(result_contract.get("failed_runs") or []),
+            "published_baseline_results": published_baseline_results,
+        }
+
+    @staticmethod
+    def _sanitize_analysis_against_raw_metrics(analysis: dict, execution_output: dict) -> dict:
+        """Remove LLM-invented result structures that are absent from raw metrics."""
+        raw_metrics = execution_output.get("metrics", {})
+        if not isinstance(raw_metrics, dict):
+            raw_metrics = {}
+
+        proposed_metrics: dict[str, Any] = {}
+        main_results = raw_metrics.get("main_results", [])
+        if isinstance(main_results, list):
+            for entry in main_results:
+                if not isinstance(entry, dict) or not entry.get("is_proposed"):
+                    continue
+                metrics = entry.get("metrics", [])
+                if isinstance(metrics, list):
+                    for metric in metrics:
+                        if not isinstance(metric, dict):
+                            continue
+                        name = metric.get("metric_name") or metric.get("name")
+                        value = metric.get("value")
+                        if isinstance(name, str) and isinstance(value, (int, float)):
+                            proposed_metrics[name] = value
+                elif isinstance(metrics, dict):
+                    proposed_metrics.update({
+                        str(k): v for k, v in metrics.items()
+                        if isinstance(v, (int, float))
+                    })
+        if proposed_metrics:
+            analysis["final_metrics"] = proposed_metrics
+
+        comparison = analysis.get("comparison_with_baselines")
+        if isinstance(comparison, dict):
+            sanitized_comparison: dict[str, Any] = {}
+            if proposed_metrics:
+                sanitized_comparison["our_method"] = proposed_metrics
+            for name, values in comparison.items():
+                if name == "our_method":
+                    continue
+                if isinstance(values, dict):
+                    sanitized_comparison[str(name)] = {str(k): None for k in values}
+            analysis["comparison_with_baselines"] = sanitized_comparison
+
+        raw_ablation = raw_metrics.get("ablation_results", [])
+        if isinstance(raw_ablation, list) and raw_ablation:
+            analysis["ablation_results"] = raw_ablation
+        else:
+            analysis["ablation_results"] = []
+            limitations = analysis.get("limitations")
+            if not isinstance(limitations, list):
+                limitations = []
+            note = "Ablation studies were not executed in this run; no ablation values are reported."
+            if note not in limitations:
+                limitations.append(note)
+            analysis["limitations"] = limitations
+
+        figures = analysis.get("figures_to_generate")
+        if isinstance(figures, list) and not analysis.get("ablation_results"):
+            analysis["figures_to_generate"] = [
+                fig for fig in figures
+                if "ablation" not in str(fig.get("figure_id", "")).lower()
+                and "ablation" not in str(fig.get("title", "")).lower()
+                and "ablation" not in str(fig.get("data_source", "")).lower()
+            ]
+
+        return analysis
 
     # ── Computational analysis (deterministic, no LLM) ──────────────────
 
@@ -243,8 +415,6 @@ IMPORTANT:
 
         # 3. Ablation contributions
         ablation_raw = raw_metrics.get("ablation_results", [])
-        if not isinstance(ablation_raw, list) or not ablation_raw:
-            ablation_raw = llm_analysis.get("ablation_results", [])
         if isinstance(ablation_raw, list) and len(ablation_raw) >= 2:
             primary_metric = self._find_primary_metric(bp_metrics)
             higher = self._metric_higher_is_better(primary_metric, bp_metrics)
@@ -284,25 +454,6 @@ IMPORTANT:
                 proposed = item
             else:
                 baselines.append(item)
-
-        # Supplement baselines from blueprint expected_performance
-        seen = {b["name"] for b in baselines}
-        for bp_bl in bp_baselines:
-            if not isinstance(bp_bl, dict):
-                continue
-            name = bp_bl.get("name", "")
-            if name in seen:
-                continue
-            perf = bp_bl.get("expected_performance", {})
-            if isinstance(perf, dict) and perf:
-                # Filter out non-numeric and "N/A"
-                clean = {
-                    k: v for k, v in perf.items()
-                    if isinstance(v, (int, float))
-                }
-                if clean:
-                    baselines.append({"name": name, "metrics": clean})
-                    seen.add(name)
 
         if proposed is None or not proposed.get("metrics"):
             return None

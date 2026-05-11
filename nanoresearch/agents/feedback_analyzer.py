@@ -135,7 +135,8 @@ class FeedbackAnalyzer:
                 if not isinstance(entry, dict):
                     continue
                 method = entry.get("method_name", "unknown")
-                is_proposed = entry.get("is_proposed", False)
+                role = str(entry.get("role") or "").lower()
+                is_proposed = bool(entry.get("is_proposed", False)) or role == "proposed"
                 if not is_proposed:
                     continue
                 for m in entry.get("metrics", []):

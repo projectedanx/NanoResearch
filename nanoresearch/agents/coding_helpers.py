@@ -137,17 +137,53 @@ exit $EXIT_CODE
 
         return "\n".join(lines)
 
-    async def _generate_requirements(self, code_plan: dict) -> str:
+    async def _generate_requirements(self, code_plan: dict, code_dir: Path | None = None) -> str:
         """Generate requirements.txt from code plan."""
-        deps = code_plan.get("dependencies", [])
+        deps = list(code_plan.get("dependencies", []) or [])
         if not deps:
-            deps = ["torch", "numpy", "pandas", "scikit-learn", "matplotlib", "tqdm"]
+            deps = ["numpy", "pandas", "scikit-learn", "requests", "tqdm"]
+
+        code_text = ""
+        if code_dir is not None:
+            for py_file in code_dir.rglob("*.py"):
+                try:
+                    code_text += "\n" + py_file.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+        needs_torch = bool(
+            _re.search(r"(^|\n)\s*(import\s+torch|from\s+torch\b)", code_text)
+        )
 
         def _pkg_base(spec: str) -> str:
             return _re.split(r'[>=<!~\[]', spec)[0].strip().lower()
 
+        stable_specs = {
+            "numpy": "numpy>=1.24,<2.0",
+            "pandas": "pandas>=1.5,<3.0",
+            "scikit-learn": "scikit-learn>=1.2,<2.0",
+            "sklearn": "scikit-learn>=1.2,<2.0",
+            "datasets": "datasets>=2.14,<4.0",
+            "transformers": "transformers>=4.30,<5.0",
+            "pillow": "Pillow>=9.0,<12.0",
+            "pil": "Pillow>=9.0,<12.0",
+            "requests": "requests>=2.28,<3.0",
+            "tqdm": "tqdm>=4.64,<5.0",
+        }
+
+        def _stabilize_spec(spec: str) -> str:
+            base = _pkg_base(spec)
+            # Generated plans often emit unpinned scientific packages. Pin the
+            # high-risk bases to wheel-backed ranges so local smoke runs do not
+            # fall back to fragile source builds.
+            if base in stable_specs and not any(op in spec for op in ("==", ">=", "<=", "<", "~=")):
+                return stable_specs[base]
+            return spec
+
+        if not needs_torch:
+            deps = [d for d in deps if _pkg_base(str(d)) not in {"torch", "pytorch", "torchvision", "torchaudio", "torchtext"}]
+
         existing_bases = {_pkg_base(d) for d in deps}
-        essential = {"torch", "numpy", "datasets", "requests", "Pillow"}
+        essential = {"numpy", "requests", "Pillow"}
         for d in essential:
             if d.lower() not in existing_bases:
                 deps.append(d)
@@ -158,7 +194,7 @@ exit $EXIT_CODE
             base = _pkg_base(d)
             if base not in seen_bases:
                 seen_bases.add(base)
-                deduped.append(d)
+                deduped.append(_stabilize_spec(d))
 
         return "\n".join(sorted(deduped)) + "\n"
 
@@ -166,7 +202,7 @@ exit $EXIT_CODE
         """Generate a lightweight conda environment file from the code plan."""
         deps = code_plan.get("dependencies", [])
         if not deps:
-            deps = ["torch", "numpy", "pandas", "scikit-learn", "matplotlib", "tqdm"]
+            deps = ["numpy", "pandas", "scikit-learn", "requests", "tqdm"]
 
         lines = [
             "name: nanoresearch-auto",
@@ -231,6 +267,121 @@ exit $EXIT_CODE
                     issues.append({"file": rel_name, "path": ref_path})
 
         return issues
+
+    def _contract_runner_static_issues(self, code_dir: Path) -> list[str]:
+        """Return contract violations in the generated unified experiment runner."""
+        runner = code_dir / "run_experiments.py"
+        if not runner.exists():
+            return ["missing run_experiments.py"]
+        content = runner.read_text(encoding="utf-8", errors="replace")
+        issues: list[str] = []
+        required_tokens = [
+            "--matrix",
+            "--output",
+            "--dry-run",
+            "--quick-eval",
+            "metrics.json",
+            "run_manifest.json",
+            "final_metrics.json",
+            "optimization_history.csv",
+            "pareto_front.json",
+            "main_results",
+            "ablation_results",
+        ]
+        for token in required_tokens:
+            if token not in content:
+                issues.append(f"run_experiments.py missing required token: {token}")
+        forbidden_fragments = [
+            "/absolute/internal/path/",
+            "../results",
+            "../workspace",
+            "nanoresearch_runner.py",
+            "nanoresearch_runner.json",
+            "COMMON_REQUIRED_METRICS",
+            "REQUIRED_RUN_METRIC_KEYS",
+            "baseline_delta_balanced_accuracy",
+            "missing required metrics",
+        ]
+        for fragment in forbidden_fragments:
+            if fragment in content:
+                issues.append(f"run_experiments.py contains forbidden fragment: {fragment}")
+        if "sys.exit(0)" in content and "except" in content:
+            issues.append("run_experiments.py may swallow errors with sys.exit(0)")
+        return issues
+
+    async def _enforce_contract_runner(
+        self,
+        code_dir: Path,
+        code_plan: dict,
+        blueprint: dict,
+        setup: dict,
+    ) -> list[str]:
+        """Regenerate the unified runner when static contract checks fail."""
+        issues = self._contract_runner_static_issues(code_dir)
+        if not issues:
+            self.log("Experiment contract runner check passed")
+            return []
+
+        self.log("Experiment contract runner check failed; regenerating run_experiments.py")
+        source_listing = ""
+        for py_file in sorted(code_dir.glob("*.py")):
+            if py_file.name in {"run_experiments.py", "nanoresearch_runner.py"}:
+                continue
+            try:
+                rel = py_file.relative_to(code_dir)
+                source_listing += f"\n# FILE: {rel}\n{py_file.read_text(encoding='utf-8', errors='replace')[:5000]}\n"
+            except OSError:
+                continue
+        prompt = f"""Rewrite ONLY run_experiments.py so it satisfies the NanoResearch experiment contract.
+
+Static issues to fix:
+{json.dumps(issues, indent=2)}
+
+Blueprint experiment matrix:
+{json.dumps(blueprint.get('experiment_matrix', []), indent=2)[:5000]}
+
+Required artifacts:
+{json.dumps(blueprint.get('required_artifacts', []), indent=2)}
+
+Minimum success criteria:
+{json.dumps(blueprint.get('minimum_success_criteria', {}), indent=2)}
+
+Project train command:
+{code_plan.get('train_command', 'python run_experiments.py --matrix configs/experiment_matrix.json --output results')}
+
+Available implementation files:
+{source_listing[:18000]}
+
+Hard requirements:
+- Implement argparse flags --matrix, --output, --dry-run, and --quick-eval.
+- Load configs/experiment_matrix.json by default and execute every required run listed there.
+- Write all artifacts under the --output directory relative to the current project directory.
+- Always write results/metrics.json, results/run_manifest.json, results/final_metrics.json, results/optimization_history.csv, and results/pareto_front.json when execution succeeds.
+- metrics.json must contain main_results for proposed and measured baselines, ablation_results for measured ablations, complexity_metrics when measured, and optimization_history or a pointer to optimization_history.csv when measured.
+- Validate success only against the blueprint minimum_success_criteria and experiment_matrix. Do not invent additional required metric fields such as baseline_delta_balanced_accuracy or model_complexity unless they are directly measured and optional.
+- If optional metrics are unavailable, omit them or leave them null; missing optional metrics must not make the run fail.
+- run_manifest.json must list every matrix run with run_id, role, status, runtime_seconds, config, artifact_paths, and failure_reason on failure.
+- Use only real computations from the generated project or public package loaders. Do not create fake/synthetic/random substitute results.
+- In --quick-eval, use smaller real subsets or fewer epochs, but still execute the matrix and write the same artifacts.
+- On any unhandled execution error, print the error and exit non-zero. Never silently catch errors and return success.
+- Do not write or modify nanoresearch_runner.py or nanoresearch_runner.json.
+- Do not hard-code internal cluster paths, sibling workspaces, ../results, or any absolute output directory.
+
+Return ONLY complete Python source code for run_experiments.py, with no markdown fences."""
+        system_prompt = (
+            "You are a senior ML systems engineer writing a robust experiment matrix runner. "
+            "The runner must produce machine-checkable artifacts from real measured runs only."
+        )
+        content = await self.generate(system_prompt, prompt)
+        content = _strip_code_fences(content)
+        runner = code_dir / "run_experiments.py"
+        runner.write_text(content, encoding="utf-8")
+        remaining = self._contract_runner_static_issues(code_dir)
+        if remaining:
+            self.log(f"Contract runner still has static issues after regeneration: {remaining}")
+        else:
+            self.log("Regenerated run_experiments.py satisfies static contract checks")
+        return ["run_experiments.py"]
 
     async def _fix_import_mismatches(self, code_dir: Path, code_plan: dict) -> None:
         """Scan all generated files for cross-file import mismatches and fix them via LLM."""

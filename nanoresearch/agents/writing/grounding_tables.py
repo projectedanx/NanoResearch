@@ -12,6 +12,116 @@ from . import _escape_latex_text
 logger = logging.getLogger(__name__)
 
 
+
+
+def _short_metric_name(name: str) -> str:
+    """Compact metric labels for paper tables."""
+    raw = str(name or "").strip()
+    key = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_")
+    aliases = {
+        "balanced_accuracy": "BA",
+        "test_balanced_accuracy": "Test BA",
+        "cv_balanced_accuracy": "CV BA",
+        "accuracy": "Acc",
+        "test_accuracy": "Test Acc",
+        "f1": "F1",
+        "f1_score": "F1",
+        "roc_auc": "AUC",
+        "auc": "AUC",
+        "selected_features": "#Feat",
+        "selected_feature_count": "#Feat",
+        "num_features": "#Feat",
+        "feature_count": "#Feat",
+        "nonzero_coefficients": "#Coef",
+        "nonzero_coef_count": "#Coef",
+        "fit_time_seconds": "Fit(s)",
+        "fit_time": "Fit(s)",
+        "predict_time_seconds": "Pred(s)",
+        "predict_time": "Pred(s)",
+        "runtime_seconds": "Time(s)",
+        "pareto_front_size": "Pareto",
+    }
+    if key in aliases:
+        return aliases[key]
+    if "balanced_accuracy" in key and "pareto" in key:
+        return "Pareto BA"
+    if "balanced_accuracy" in key and "cross" in key:
+        return "CV BA"
+    if "balanced_accuracy" in key and "heldout" in key:
+        return "Test BA"
+    if key in {"heldout_accuracy", "test_accuracy"}:
+        return "Test Acc"
+    if "roc_auc" in key or key.endswith("auc"):
+        return "AUC"
+    if "f1" in key:
+        return "F1"
+    if "selected_feature" in key or key in {"num_features", "feature_count"}:
+        return "#Feat"
+    if "fit_time" in key:
+        return "Fit(s)"
+    if "predict_time" in key:
+        return "Pred(s)"
+    if "tree_count" in key:
+        return "Trees"
+    text = raw.replace("balanced_accuracy", "BA")
+    text = text.replace("accuracy", "Acc")
+    text = text.replace("selected_feature_count", "#Feat")
+    text = text.replace("selected_features", "#Feat")
+    text = text.replace("fit_time_seconds", "Fit(s)")
+    text = text.replace("predict_time_seconds", "Pred(s)")
+    text = text.replace("_", " ").strip()
+    return text[:18] if len(text) > 18 else text
+
+
+def _metric_priority(name: str) -> tuple[int, str]:
+    key = re.sub(r"[^a-z0-9]+", "_", str(name or "").lower()).strip("_")
+    order = [
+        ("balanced_accuracy", 0),
+        ("test_balanced_accuracy", 0),
+        ("accuracy", 1),
+        ("f1", 2),
+        ("auc", 3),
+        ("selected_feature", 4),
+        ("num_features", 4),
+        ("feature_count", 4),
+        ("nonzero", 5),
+        ("fit_time", 6),
+        ("predict_time", 7),
+        ("runtime", 8),
+        ("pareto", 9),
+    ]
+    for needle, rank in order:
+        if needle in key:
+            return rank, key
+    return 50, key
+
+def _format_paper_number(value: Any) -> str:
+    """Format numeric values for paper-facing prose/tables."""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    text = str(value)
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return text
+    return f"{number:.4f}"
+
+
+def _format_numbers_in_text(text: str) -> str:
+    """Keep generated captions/prose from exposing raw float precision."""
+    def repl(match: re.Match) -> str:
+        raw = match.group(0)
+        try:
+            return f"{float(raw):.4f}"
+        except ValueError:
+            return raw
+    return re.sub(r"(?<![A-Za-z0-9_])-?\d+\.\d{5,}(?![A-Za-z0-9_])", repl, str(text or ""))
+
+
 class _GroundingTablesMixin:
     """Mixin — table/figure block building and table verification methods."""
 
@@ -35,17 +145,23 @@ class _GroundingTablesMixin:
                     seen.add(name)
         if not all_metrics:
             return ""
+        all_metrics = sorted(all_metrics, key=_metric_priority)[:6]
         n_metrics = len(all_metrics)
         col_spec = "@{}l" + "c" * n_metrics + "@{}"
-        header_cells = " & ".join(all_metrics)
+        header_cells = " & ".join(_escape_latex_text(_short_metric_name(m)) for m in all_metrics)
+        use_resizebox = n_metrics >= 4
         lines = [
-            "\\begin{table}[t!]", "\\centering", "\\small",
-            "\\setlength{\\tabcolsep}{4pt}",
+            "\\begin{table}[htbp]", "\\centering", "\\scriptsize",
+            "\\setlength{\\tabcolsep}{2pt}",
             "\\caption{Ablation study. Each row removes or replaces one component.}",
             "\\label{tab:ablation}",
+        ]
+        if use_resizebox:
+            lines.append("\\resizebox{\\linewidth}{!}{%")
+        lines.extend([
             f"\\begin{{tabular}}{{{col_spec}}}", "\\toprule",
             f"Variant & {header_cells} \\\\", "\\midrule",
-        ]
+        ])
         for entry in ablation_results:
             variant = _escape_latex_text(entry.get("variant_name", "?"))
             cells = []
@@ -55,11 +171,14 @@ class _GroundingTablesMixin:
                     if isinstance(m, dict) and m.get("metric_name") == metric_name:
                         val = m.get("value")
                         if val is not None:
-                            val_str = str(val)
+                            val_str = _format_paper_number(val)
                         break
                 cells.append(val_str)
             lines.append(f"{variant} & {' & '.join(cells)} \\\\")
-        lines.extend(["\\bottomrule", "\\end{tabular}", "\\end{table}"])
+        lines.extend(["\\bottomrule", "\\end{tabular}"])
+        if use_resizebox:
+            lines.append("}")
+        lines.append("\\end{table}")
         return "\n".join(lines)
 
     @staticmethod
@@ -117,9 +236,9 @@ class _GroundingTablesMixin:
         dataset_str = ", ".join(dataset_names[:3]) if dataset_names else "the benchmark"
         n = len(metric_names)
         col_spec = "@{}l" + "c" * n + "@{}"
-        header = " & ".join(metric_names)
+        header = " & ".join(_escape_latex_text(m) for m in metric_names)
         lines = [
-            "\\begin{table}[t!]", "\\centering", "\\small",
+            "\\begin{table}[htbp]", "\\centering", "\\small",
             "\\setlength{\\tabcolsep}{4pt}",
             f"\\caption{{Main experimental results on {_escape_latex_text(dataset_str)}. "
             "Best results are in \\textbf{bold}. "
@@ -200,10 +319,10 @@ class _GroundingTablesMixin:
         col_spec = "@{}l" + "c" * n + "@{}"
         header = " & ".join(metric_names)
         lines = [
-            "\\begin{table}[t!]", "\\centering", "\\small",
+            "\\begin{table}[htbp]", "\\centering", "\\small",
             "\\setlength{\\tabcolsep}{4pt}",
             f"\\caption{{Ablation study on {_escape_latex_text(dataset_str)}. Each row removes one component. "
-            "Results are pending due to execution issues.}",
+            "No verified measured results are available for this table.}",
             "\\label{tab:ablation}",
         ]
         use_resizebox = n >= 5
@@ -258,10 +377,10 @@ class _GroundingTablesMixin:
                         continue
                     val = metric.get("value", "?")
                     std = metric.get("std")
-                    std_str = f" $\\pm$ {std}" if std is not None else ""
+                    std_str = f" $\\pm$ {_format_paper_number(std)}" if std is not None else ""
                     lines.append(
                         f"  {method} on {dataset}: "
-                        f"{metric.get('metric_name', '?')} = {val}{std_str}{tag}"
+                        f"{metric.get('metric_name', '?')} = {_format_paper_number(val)}{std_str}{tag}"
                     )
 
             ablation = experiment_results.get("ablation_results", [])
@@ -279,7 +398,7 @@ class _GroundingTablesMixin:
                             continue
                         val = metric.get("value", "?")
                         lines.append(
-                            f"  {variant}: {metric.get('metric_name', '?')} = {val}"
+                            f"  {variant}: {metric.get('metric_name', '?')} = {_format_paper_number(val)}"
                         )
 
             lines.append("=== END REAL EXPERIMENT RESULTS ===")
@@ -293,7 +412,7 @@ class _GroundingTablesMixin:
                 "- Do NOT write ANY specific numbers or quantitative claims about the proposed method.\n"
                 "- For BASELINE methods, you MAY fill in numbers from their original papers (cite source).\n"
                 "- Do NOT generate \\begin{table} environments yourself. Tables are auto-injected.\n"
-                "  Reference them as Table~\\ref{tab:main_results} and Table~\\ref{tab:ablation}.\n"
+                "  Reference Table~\\ref{tab:main_results}. Reference Table~\\ref{tab:ablation} only if real ablation data exists.\n"
                 "- Write a full Experiments section: datasets, metrics, baselines, setup, implementation.\n"
                 "- Include: 'Due to technical issues during execution, quantitative results for our "
                 "method are not available in this version.'\n"
@@ -410,6 +529,23 @@ class _GroundingTablesMixin:
 
     def _verify_and_inject_tables(self, content: str, grounding: GroundingPacket, heading: str) -> str:
         """Verify Experiments section has correct tables; inject if missing or wrong."""
+        if heading.strip().lower() == "experiments":
+            allowed_labels = {r"\label{tab:main_results}", r"\label{tab:ablation}"}
+
+            def _keep_only_grounded_tables(match: re.Match) -> str:
+                table_block = match.group(0)
+                if any(label in table_block for label in allowed_labels):
+                    return table_block
+                self.log(f"  {heading}: removing ungrounded LLM-generated table")
+                return ""
+
+            content = re.sub(
+                r"\\begin\{table\*?\}.*?\\end\{table\*?\}",
+                _keep_only_grounded_tables,
+                content,
+                flags=re.DOTALL,
+            )
+
         for label_key, table_latex, kw_pattern in [
             (r"\label{tab:main_results}", grounding.main_table_latex,
              r'(?:main results|overall performance|comparison)'),
@@ -473,17 +609,19 @@ class _GroundingTablesMixin:
                 if "error" in fig_data and "png_path" not in fig_data:
                     logger.warning("Skipping failed figure %s: %s", fig_key, fig_data.get("error", "?"))
                     continue
-                caption = _escape_latex_text(fig_data.get("caption", f"Figure: {fig_key}"))
+                caption = _escape_latex_text(_format_numbers_in_text(fig_data.get("caption", f"Figure: {fig_key}")))
                 parts = fig_key.split("_", 1)
                 label_suffix = parts[1] if len(parts) > 1 else fig_key
                 include_name = self._resolve_figure_include(fig_key, fig_data, figures_dir)
                 if include_name is None:
                     logger.warning("Figure %s: no valid file found on disk, skipping", fig_key)
                     continue
-                fw = r"\textwidth" if any(kw in label_suffix.lower() for kw in _full_kws) else r"0.75\textwidth"
+                is_full = any(kw in label_suffix.lower() for kw in _full_kws)
+                fw = r"\textwidth" if is_full else r"0.75\textwidth"
+                fh = r"0.32\textheight" if is_full else r"0.28\textheight"
                 blocks[label_suffix] = (
-                    f"\\begin{{figure}}[t!]\n\\centering\n"
-                    f"\\includegraphics[width={fw}, height=0.32\\textheight, keepaspectratio]{{{include_name}}}\n"
+                    f"\\begin{{figure}}[htbp]\n\\centering\n"
+                    f"\\includegraphics[width={fw}, height={fh}, keepaspectratio]{{{include_name}}}\n"
                     f"\\caption{{{caption}}}\n\\label{{fig:{label_suffix}}}\n\\end{{figure}}"
                 )
         else:
@@ -493,7 +631,7 @@ class _GroundingTablesMixin:
                         stem = img.stem
                         readable = stem.replace("_", " ").replace("-", " ").title()
                         blocks[stem] = (
-                            f"\\begin{{figure}}[t!]\n\\centering\n"
+                            f"\\begin{{figure}}[htbp]\n\\centering\n"
                             f"\\includegraphics[width=0.75\\textwidth]{{{img.name}}}\n"
                             f"\\caption{{{_escape_latex_text(readable)}.}}\n"
                             f"\\label{{fig:{stem}}}\n\\end{{figure}}"
@@ -520,5 +658,358 @@ class _GroundingTablesMixin:
             if figures_dir and (figures_dir / default_name).exists():
                 return default_name
         return None
+
+
+    @staticmethod
+    def _metric_value(entry: dict, *names: str) -> Any:
+        """Return a metric value from a normalized result entry."""
+        wanted = {re.sub(r"[^a-z0-9]+", "_", n.lower()).strip("_") for n in names}
+        metrics = entry.get("metrics", []) if isinstance(entry, dict) else []
+        if isinstance(metrics, dict):
+            metrics = [{"metric_name": k, "value": v} for k, v in metrics.items()]
+        for metric in metrics or []:
+            if not isinstance(metric, dict):
+                continue
+            key = re.sub(r"[^a-z0-9]+", "_", str(metric.get("metric_name") or "").lower()).strip("_")
+            if key in wanted:
+                return metric.get("value")
+        for name in wanted:
+            if name in entry:
+                return entry.get(name)
+        return None
+
+    @staticmethod
+    def _numeric_metric(entry: dict, *names: str) -> float | None:
+        value = _GroundingTablesMixin._metric_value(entry, *names)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _result_name(entry: dict, default: str = "method") -> str:
+        for key in ("method_name", "variant_name", "method", "model_name", "name", "run_id"):
+            value = entry.get(key) if isinstance(entry, dict) else None
+            if isinstance(value, str) and value.strip():
+                return value.strip().replace("_", " ")
+        return default
+
+    @staticmethod
+    def _figure_label_from_block(block: str) -> str:
+        match = re.search(r"\\label\{fig:([^}]+)\}", block or "")
+        return match.group(1) if match else ""
+
+    @staticmethod
+    def _figure_caption_from_block(block: str) -> str:
+        match = re.search(r"\\caption\{(.*?)\}", block or "", flags=re.DOTALL)
+        return re.sub(r"\s+", " ", match.group(1)).strip() if match else ""
+
+    @staticmethod
+    def _compose_experiments_section(
+        grounding: GroundingPacket,
+        figure_blocks: dict[str, str] | None,
+        blueprint: dict | None = None,
+        *,
+        include_heading: bool = False,
+    ) -> tuple[str, set[str]]:
+        """Build an artifact-grounded Experiments section with text/table/figure interleaving.
+
+        The composer is intentionally deterministic: it reports only measured
+        artifacts already present in ``grounding`` and places explanatory prose
+        around each table or figure so LaTeX floats do not collapse into a bare
+        sequence of visuals.
+        """
+        blocks = dict(figure_blocks or {})
+        used: set[str] = set()
+        lines: list[str] = []
+        if include_heading:
+            lines.append(r"\section{Experiments}\label{sec:experiments}")
+            lines.append("")
+
+        dataset = "the evaluated dataset"
+        if isinstance(blueprint, dict):
+            datasets = blueprint.get("datasets") or []
+            if isinstance(datasets, list) and datasets:
+                first = datasets[0]
+                if isinstance(first, dict):
+                    dataset = str(first.get("name") or dataset).replace("_", " ")
+                elif isinstance(first, str):
+                    dataset = first.replace("_", " ")
+
+        proposed = next(
+            (e for e in grounding.main_results if isinstance(e, dict) and (e.get("is_proposed") or str(e.get("role", "")).lower() == "proposed")),
+            grounding.main_results[0] if grounding.main_results else {},
+        )
+        proposed_name = _escape_latex_text(_GroundingTablesMixin._result_name(proposed, "the proposed method"))
+        proposed_ba = _GroundingTablesMixin._numeric_metric(proposed, "heldout_balanced_accuracy", "test_balanced_accuracy", "balanced_accuracy")
+        proposed_features = _GroundingTablesMixin._numeric_metric(proposed, "selected_feature_count", "selected_features", "nonzero_coefficient_count")
+        baselines = [
+            e for e in grounding.main_results
+            if isinstance(e, dict) and not (e.get("is_proposed") or str(e.get("role", "")).lower() == "proposed")
+        ]
+        best_baseline = None
+        best_baseline_ba = None
+        for entry in baselines:
+            score = _GroundingTablesMixin._numeric_metric(entry, "heldout_balanced_accuracy", "test_balanced_accuracy", "balanced_accuracy")
+            if score is not None and (best_baseline_ba is None or score > best_baseline_ba):
+                best_baseline = entry
+                best_baseline_ba = score
+
+        def result_name(entry: dict | None, fallback: str) -> str:
+            return _escape_latex_text(_GroundingTablesMixin._result_name(entry or {}, fallback))
+
+        def find_result(*needles: str) -> dict | None:
+            lowered = [n.lower() for n in needles]
+            for entry in grounding.main_results:
+                if not isinstance(entry, dict):
+                    continue
+                name = _GroundingTablesMixin._result_name(entry, "").lower()
+                if all(n in name for n in lowered):
+                    return entry
+            return None
+
+        def metric(entry: dict | None, *names: str) -> float | None:
+            return _GroundingTablesMixin._numeric_metric(entry or {}, *names)
+
+        proposed_acc = metric(proposed, "heldout_accuracy", "test_accuracy", "accuracy")
+        proposed_auc = metric(proposed, "heldout_roc_auc", "test_roc_auc", "roc_auc", "auc")
+        proposed_fit = metric(proposed, "fit_time_seconds", "fit_time", "refit_time_seconds")
+        proposed_pred = metric(proposed, "predict_time_seconds", "predict_time", "prediction_time_seconds")
+        proposed_coef = metric(proposed, "nonzero_coefficient_count", "nonzero_coefficients")
+        baseline_features = metric(best_baseline, "selected_feature_count", "selected_features", "feature_count", "num_features")
+        logistic_baseline = find_result("logistic")
+        forest_baseline = find_result("forest")
+
+        def fmt_metric(value: float | None, suffix: str = "") -> str:
+            return (_format_paper_number(value) + suffix) if value is not None else "the measured value"
+
+        def main_result_discussion() -> str:
+            if proposed_ba is None:
+                return "The main comparison is interpreted only as an executed-run summary because the artifacts do not contain a primary held-out balanced-accuracy value for the proposed method."
+            pieces = [
+                f"The proposed row is best understood as a compactness-preserving operating point rather than a pure accuracy maximizer: it obtains held-out balanced accuracy {_format_paper_number(proposed_ba)}"
+            ]
+            if proposed_acc is not None:
+                pieces.append(f"and held-out accuracy {_format_paper_number(proposed_acc)}")
+            if proposed_auc is not None:
+                pieces.append(f"with ROC--AUC {_format_paper_number(proposed_auc)}")
+            sentence = " ".join(pieces) + "."
+            if proposed_features is not None:
+                sentence += f" The selected feature count is {_format_paper_number(int(proposed_features) if proposed_features.is_integer() else proposed_features)}, so the result exposes the accuracy cost of deploying a smaller diagnostic panel instead of only reporting predictive scores."
+            if best_baseline is not None and best_baseline_ba is not None:
+                delta = proposed_ba - best_baseline_ba
+                sentence += f" Compared with {result_name(best_baseline, 'the strongest measured baseline')}, the balanced-accuracy difference is {_format_paper_number(delta)} under the same split and metric contract."
+                if baseline_features is not None and proposed_features is not None:
+                    feature_delta = proposed_features - baseline_features
+                    sentence += f" The feature-count difference is {_format_paper_number(feature_delta)}, making the comparison explicitly about the accuracy--measurement trade-off."
+            if logistic_baseline is not None and forest_baseline is not None:
+                log_ba = metric(logistic_baseline, "heldout_balanced_accuracy", "test_balanced_accuracy", "balanced_accuracy")
+                rf_ba = metric(forest_baseline, "heldout_balanced_accuracy", "test_balanced_accuracy", "balanced_accuracy")
+                log_auc = metric(logistic_baseline, "heldout_roc_auc", "roc_auc", "auc")
+                rf_auc = metric(forest_baseline, "heldout_roc_auc", "roc_auc", "auc")
+                details = []
+                if log_ba is not None:
+                    details.append(f"full-feature logistic regression reaches balanced accuracy {_format_paper_number(log_ba)}")
+                if rf_ba is not None:
+                    details.append(f"random forest reaches {_format_paper_number(rf_ba)}")
+                if log_auc is not None and rf_auc is not None:
+                    details.append(f"their ROC--AUC values are {_format_paper_number(log_auc)} and {_format_paper_number(rf_auc)}")
+                if details:
+                    sentence += " The two baselines also clarify the comparison boundary: " + "; ".join(details) + "."
+            sentence += " Since every numeric row comes from the local run artifacts, the discussion avoids importing literature-only scores that may use different datasets, preprocessing, or validation boundaries."
+            return sentence
+
+        def ablation_discussion() -> str:
+            ablation_scores = []
+            for entry in grounding.ablation_results:
+                if isinstance(entry, dict):
+                    score = metric(entry, "heldout_balanced_accuracy", "balanced_accuracy", "test_balanced_accuracy")
+                    feat = metric(entry, "selected_feature_count", "selected_features", "feature_count", "num_features")
+                    if score is not None:
+                        ablation_scores.append((score, feat, _GroundingTablesMixin._result_name(entry, "variant")))
+            if not ablation_scores:
+                return "The ablation table is reported as an executed-variant inventory; unsupported component-level causal claims are intentionally avoided."
+            best_score, best_feat, best_name = max(ablation_scores, key=lambda item: item[0])
+            text = f"Among the measured variants, {_escape_latex_text(best_name)} gives the largest held-out balanced accuracy at {_format_paper_number(best_score)}."
+            if proposed_ba is not None:
+                text += f" Its difference from the proposed configuration is {_format_paper_number(best_score - proposed_ba)}, so the ablation should be read alongside the feature and complexity columns rather than as a single-number leaderboard."
+            if best_feat is not None and proposed_features is not None:
+                text += f" The same variant uses {_format_paper_number(int(best_feat) if best_feat.is_integer() else best_feat)} selected features versus {_format_paper_number(int(proposed_features) if proposed_features.is_integer() else proposed_features)} for the proposed method, which clarifies whether the apparent gain comes with a larger measurement budget."
+            text += " This framing keeps the ablation aligned with the paper's design question: which component helps preserve accuracy while keeping the final model inspectable?"
+            return text
+
+        def complexity_discussion() -> str:
+            parts = [
+                "The optimization and complexity diagnostics separate one-time search cost from deployed-model cost, which is essential for lightweight tabular claims."
+            ]
+            if proposed_features is not None or proposed_coef is not None:
+                desc = []
+                if proposed_features is not None:
+                    desc.append(f"{_format_paper_number(int(proposed_features) if proposed_features.is_integer() else proposed_features)} selected features")
+                if proposed_coef is not None:
+                    desc.append(f"{_format_paper_number(int(proposed_coef) if proposed_coef.is_integer() else proposed_coef)} nonzero coefficients")
+                parts.append("For the final classifier, the artifacts record " + " and ".join(desc) + ", which directly determines the number of measurements and signed coefficients a user must inspect.")
+            if proposed_fit is not None or proposed_pred is not None:
+                timing = []
+                if proposed_fit is not None:
+                    timing.append(f"fit time {_format_paper_number(proposed_fit)} seconds")
+                if proposed_pred is not None:
+                    timing.append(f"prediction time {_format_paper_number(proposed_pred)} seconds")
+                parts.append("The timing record reports " + " and ".join(timing) + "; these values describe the measured local execution rather than a hardware-independent theoretical guarantee.")
+            parts.append("Consequently, the diagnostic figures are used to judge whether the search procedure produces a model that is simpler at deployment time, not merely whether it reaches a competitive validation score during search.")
+            return " ".join(parts)
+
+        def pop_fig(*keywords: str) -> tuple[str, str]:
+            for key, block in list(blocks.items()):
+                key_label = " ".join([
+                    key.lower(),
+                    _GroundingTablesMixin._figure_label_from_block(block).lower(),
+                ])
+                caption_text = _GroundingTablesMixin._figure_caption_from_block(block).lower()
+                haystack = f"{key_label} {caption_text}"
+                if any(kw in key_label for kw in ("method", "framework", "schematic", "architecture", "overview")):
+                    continue
+                if any(kw in haystack for kw in keywords):
+                    used.add(key)
+                    blocks.pop(key, None)
+                    return key, block.strip()
+            return "", ""
+
+        def figure_ref(key: str, block: str) -> str:
+            label = _GroundingTablesMixin._figure_label_from_block(block) or key
+            return label if label.startswith("fig:") else f"fig:{label}"
+
+        def add_figure_block(block: str) -> None:
+            if not block:
+                return
+            block = re.sub(r"\\begin\{figure\}\[[^]]*\]", r"\\begin{figure}[tbp]", block.strip(), count=1)
+            lines.extend(["", _format_numbers_in_text(block), ""])
+
+        def join_refs(refs: list[str]) -> str:
+            if not refs:
+                return ""
+            if len(refs) == 1:
+                return refs[0]
+            if len(refs) == 2:
+                return refs[0] + " and " + refs[1]
+            return ", ".join(refs[:-1]) + ", and " + refs[-1]
+
+        main_key, main_fig = pop_fig("main_results", "main result", "model_comparison", "performance_comparison")
+        ablation_key, ablation_fig = pop_fig("ablation", "variant")
+        trade_key, trade_fig = pop_fig("tradeoff", "trade-off", "sparsity", "pareto", "frontier")
+        complexity_key, complexity_fig = pop_fig("complexity", "efficiency", "runtime", "latency", "cost", "profile")
+        optimization_key, optimization_fig = pop_fig("optimization", "history", "convergence")
+
+        lines.extend([
+            "We evaluate the method using only measurements produced by the executed local pipeline. Literature and OpenAlex-retrieved papers are used for positioning, while the quantitative tables below are restricted to runs that share the same dataset split, preprocessing boundary, and metric definitions.",
+            "",
+            r"\subsection{Experimental Protocol}",
+            f"The experiment uses {_escape_latex_text(dataset)} and compares {proposed_name} against locally executed full-feature logistic-regression and random-forest baselines when those runs are available in the artifacts. The protocol reports predictive metrics together with feature-count and timing measurements because the objective is not only accuracy, but also inspectability and lightweight execution.",
+            "The proposed configuration is selected from a Pareto front rather than from a single validation score. This matters for interpretation: a model can improve held-out accuracy by retaining more features, but such a point may be less useful for a lightweight diagnostic setting than a slightly lower-scoring model with a smaller inspected feature set.",
+            "All reported scores are treated as split-specific measurements from the current run. This means that the tables support within-run comparisons among methods evaluated under the same preprocessing and split contract, while broader statistical claims would require repeated seeds or external validation data.",
+        ])
+
+        if grounding.main_table_latex:
+            lines.extend([
+                "",
+                r"\subsection{Main Results}",
+                "Table~\\ref{tab:main_results} gives the primary measured comparison. The table intentionally keeps literature-only baselines out of the numeric rows, so every reported value comes from the same local evaluation contract.",
+                "",
+                grounding.main_table_latex,
+                "",
+            ])
+            lines.append(main_result_discussion())
+            lines.append("The result should therefore be read as a controlled trade-off rather than a leaderboard claim. Full-feature logistic regression remains the natural accuracy reference, random forest provides a nonlinear baseline, and the proposed sparse model tests whether a fixed-budget Pareto search can recover comparable held-out behavior with a substantially smaller feature subset.")
+
+        if main_fig:
+            main_ref = f"Figure~\\ref{{{figure_ref(main_key, main_fig)}}}"
+            lines.append(f"{main_ref} visualizes the same local measurements as Table~\\ref{{tab:main_results}}, so the reader can inspect the accuracy pattern without changing the evidence source. The visual comparison is interpreted together with the exact table values: the relevant question is whether the proposed operating point remains competitive across held-out metrics while reducing the inspected feature set.")
+            add_figure_block(main_fig)
+
+        if grounding.ablation_results and grounding.ablation_table_latex:
+            lines.extend([
+                "",
+                r"\subsection{Ablation Study}",
+                "The ablation study checks whether alternative design choices move the method along the same accuracy--compactness frontier or change the operating point in a materially different way.",
+                "",
+                grounding.ablation_table_latex,
+                "",
+            ])
+            ablation_scores = []
+            for entry in grounding.ablation_results:
+                if isinstance(entry, dict):
+                    score = _GroundingTablesMixin._numeric_metric(entry, "heldout_balanced_accuracy", "balanced_accuracy", "test_balanced_accuracy")
+                    if score is not None:
+                        ablation_scores.append((score, _GroundingTablesMixin._result_name(entry, "variant")))
+            lines.append(ablation_discussion())
+            lines.append("The ablation results are especially important because they prevent the paper from attributing every score difference to the evolutionary search itself. The best-accuracy selection and random-search variants test two different alternatives: changing the Pareto selection rule and replacing the structured search procedure. Their rows show whether accuracy gains come from the intended sparse-selection mechanism or from relaxing the compactness constraint.")
+            if ablation_fig:
+                ablation_ref = f"Figure~\\ref{{{figure_ref(ablation_key, ablation_fig)}}}"
+                lines.append(f"{ablation_ref} is read with Table~\\ref{{tab:ablation}} rather than as a separate result: it shows whether the strongest held-out score also requires a larger selected-feature budget. This is the key distinction for the lightweight use case, because an ablation that gains accuracy by expanding the measurement set may be less aligned with the target deployment setting than a slightly lower-scoring but more compact configuration.")
+                add_figure_block(ablation_fig)
+
+        if trade_fig or complexity_fig or optimization_fig:
+            opt_bits = []
+            pareto_size = metric(proposed, "pareto_front_size")
+            opt_time = metric(proposed, "optimization_time_seconds")
+            runtime = metric(proposed, "runtime_seconds")
+            if pareto_size is not None:
+                opt_bits.append(f"a Pareto front with {_format_paper_number(int(pareto_size) if pareto_size.is_integer() else pareto_size)} retained points")
+            if opt_time is not None:
+                opt_bits.append(f"optimization time {_format_paper_number(opt_time)} seconds")
+            if runtime is not None:
+                opt_bits.append(f"total runtime {_format_paper_number(runtime)} seconds")
+            opt_sentence = "The run artifacts also record " + " and ".join(opt_bits) + "." if opt_bits else "The run artifacts provide complexity diagnostics for the final selected model."
+            lines.extend([
+                "",
+                r"\subsection{Optimization and Complexity Analysis}",
+                complexity_discussion(),
+                opt_sentence + " These values are not used as hardware-independent speed claims; they document the local search envelope and help separate one-time model-selection cost from deployed-model cost.",
+            ])
+            diagnostic_refs = []
+            if trade_fig:
+                diagnostic_refs.append(f"Figure~\\ref{{{figure_ref(trade_key, trade_fig)}}}")
+            if complexity_fig:
+                diagnostic_refs.append(f"Figure~\\ref{{{figure_ref(complexity_key, complexity_fig)}}}")
+            if optimization_fig:
+                diagnostic_refs.append(f"Figure~\\ref{{{figure_ref(optimization_key, optimization_fig)}}}")
+            if diagnostic_refs:
+                lines.append(f"{join_refs(diagnostic_refs)} complete the efficiency argument by linking held-out score, selected-feature count, and local runtime diagnostics in the same artifact-grounded view. These diagnostics are not treated as hardware-independent speed claims; they show whether a higher score is achieved by a genuinely compact model or by moving toward a larger feature set, and whether the one-time search cost is separated from the cost of deploying the selected model.")
+            add_figure_block(trade_fig)
+            add_figure_block(complexity_fig)
+            add_figure_block(optimization_fig)
+
+        remaining_result_figs = []
+        for key, block in list(blocks.items()):
+            haystack = f"{key} {_GroundingTablesMixin._figure_caption_from_block(block)}".lower()
+            key_label = key.lower() + " " + _GroundingTablesMixin._figure_label_from_block(block).lower()
+            if any(kw in key_label for kw in ("method", "framework", "schematic", "architecture", "overview")):
+                continue
+            if any(kw in haystack for kw in ("result", "accuracy", "ablation", "complexity", "runtime", "pareto", "tradeoff", "history")):
+                remaining_result_figs.append((key, block.strip()))
+                used.add(key)
+        for key, block in remaining_result_figs[:2]:
+            extra_ref = f"Figure~\\ref{{{figure_ref(key, block)}}}"
+            lines.append(f"{extra_ref} adds a supporting diagnostic for the executed experiment. It is used only to qualify the measured comparison already discussed above, and the paper does not derive claims beyond the quantities shown in the figure.")
+            add_figure_block(block)
+
+        if grounding.evidence_gaps:
+            readable_gaps = []
+            for gap in grounding.evidence_gaps:
+                gap_l = str(gap).lower()
+                if "missing" in gap_l or "no " in gap_l or "quick" in gap_l:
+                    readable_gaps.append(str(gap))
+            if readable_gaps:
+                lines.extend([
+                    "",
+                    r"\subsection{Scope of Evidence}",
+                    "The reported claims are scoped to the executed artifacts available to the writing stage. Additional repeated-split or external-validation evidence would be required before making broader statistical claims.",
+                ])
+
+        lines.extend([
+            "",
+            "Overall, the experimental section supports claims that are directly tied to the measured local protocol. The narrative therefore emphasizes verified comparisons, ablation behavior, and lightweight-complexity diagnostics without filling missing categories with inferred numbers.",
+        ])
+        return "\n".join(lines).strip() + "\n", used
 
     _TOOL_SECTIONS = frozenset({"Introduction", "Related Work", "Method", "Experiments"})

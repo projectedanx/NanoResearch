@@ -84,16 +84,46 @@ class _LaTeXBibFiguresMixin:
         bib = _escape_hash_percent_in_entry(bib)
 
         replacements = {
+            "\u00e1": r"{\'a}",
+            "\u00c1": r"{\'A}",
             "\u00e9": r"{\'e}",
+            "\u00c9": r"{\'E}",
+            "\u00ed": r"{\'i}",
+            "\u00cd": r"{\'I}",
+            "\u00f3": r"{\'o}",
+            "\u00d3": r"{\'O}",
+            "\u00fa": r"{\'u}",
+            "\u00da": r"{\'U}",
             "\u00e8": r"{\`e}",
             "\u00eb": r'{\"e}',
+            "\u00ef": r'{\"i}',
             "\u00fc": r'{\"u}',
+            "\u00dc": r'{\"U}',
             "\u00f6": r'{\"o}',
+            "\u00d6": r'{\"O}',
             "\u00e4": r'{\"a}',
+            "\u00c4": r'{\"A}',
             "\u00df": r"{\ss}",
             "\u00e7": r"{\c{c}}",
             "\u00c7": r"{\c{C}}",
             "\u00f1": r"{\~n}",
+            "\u00d1": r"{\~N}",
+            "\u0105": r"{\k{a}}",
+            "\u0104": r"{\k{A}}",
+            "\u0107": r"{\'c}",
+            "\u0106": r"{\'C}",
+            "\u0119": r"{\k{e}}",
+            "\u0118": r"{\k{E}}",
+            "\u0142": r"{\l}",
+            "\u0141": r"{\L}",
+            "\u0144": r"{\'n}",
+            "\u0143": r"{\'N}",
+            "\u015b": r"{\'s}",
+            "\u015a": r"{\'S}",
+            "\u017a": r"{\'z}",
+            "\u0179": r"{\'Z}",
+            "\u017c": r"{\.z}",
+            "\u017b": r"{\.Z}",
             "\u011f": r"{\u{g}}",
             "\u0131": r"{\i}",
             "\u015f": r"{\c{s}}",
@@ -101,9 +131,9 @@ class _LaTeXBibFiguresMixin:
             "\u0171": r"{\H{u}}",
             "\u017e": r"{\v{z}}",
             "\u0161": r"{\v{s}}",
-            "\u0107": r"{\'c}",
             "\u2014": "---",
             "\u2013": "--",
+            "\u2010": "-",
         }
         for char, repl in replacements.items():
             bib = bib.replace(char, repl)
@@ -139,7 +169,15 @@ class _LaTeXBibFiguresMixin:
         ("performance", "Experiments"),
         ("ablation", "Experiments"),
         ("efficiency", "Experiments"),
+        ("runtime", "Experiments"),
+        ("cost", "Experiments"),
+        ("complexity", "Experiments"),
+        ("pareto", "Experiments"),
+        ("history", "Experiments"),
+        ("optimization", "Experiments"),
+        ("sparsity", "Experiments"),
         ("tradeoff", "Experiments"),
+        ("trade_off", "Experiments"),
         ("training", "Experiments"),
         ("convergence", "Experiments"),
         ("qualitative", "Experiments"),
@@ -147,12 +185,12 @@ class _LaTeXBibFiguresMixin:
         ("accuracy", "Experiments"),
         ("loss", "Experiments"),
         # -- Introduction --
-        ("overview", "Introduction"),
-        ("task", "Introduction"),
-        ("motivation", "Introduction"),
-        ("teaser", "Introduction"),
-        ("intuition", "Introduction"),
-        ("illustration", "Introduction"),
+        ("overview", "Method"),
+        ("task", "Method"),
+        ("motivation", "Method"),
+        ("teaser", "Method"),
+        ("intuition", "Method"),
+        ("illustration", "Method"),
         # -- Method (check last -- "model"/"main" are ambiguous) --
         ("architecture", "Method"),
         ("framework", "Method"),
@@ -162,6 +200,32 @@ class _LaTeXBibFiguresMixin:
         ("detail", "Method"),
         ("model", "Method"),  # ambiguous -- but only reached if no Experiments keyword matched
     ]
+
+    _RESULT_FIGURE_LABELS = re.compile(
+        r"result|comparison|performance|main|baseline|ablation|accuracy|loss|"
+        r"efficiency|runtime|cost|complexity|pareto|history|optimization|"
+        r"tradeoff|trade_off|sparsity",
+        re.IGNORECASE,
+    )
+    _METHOD_FIGURE_LABELS = re.compile(
+        r"overview|framework|pipeline|architecture|workflow|diagram|model|"
+        r"method|system|teaser|motivation|intuition|task|illustration",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _figure_target_section(cls, fig_hint: str) -> str:
+        hint = fig_hint or ""
+        if cls._RESULT_FIGURE_LABELS.search(hint):
+            return "Experiments"
+        if cls._METHOD_FIGURE_LABELS.search(hint):
+            return "Method"
+        return "Experiments"
+
+    @staticmethod
+    def _section_at_position(content: str, pos: int) -> str:
+        headings = list(re.finditer(r'\section\*?\{([^}]+)\}', content[:pos]))
+        return headings[-1].group(1).strip() if headings else ""
 
     @staticmethod
     def _insert_figure_near_ref(
@@ -186,10 +250,18 @@ class _LaTeXBibFiguresMixin:
         match = pattern.search(content)
         if not match:
             return content, False
+        section = _LaTeXBibFiguresMixin._section_at_position(content, match.start())
+        target = _LaTeXBibFiguresMixin._figure_target_section(fig_key)
+        if section in {"Introduction", "Conclusion", "References"}:
+            return content, False
+        if target == "Experiments" and "experiment" not in section.lower() and "result" not in section.lower():
+            return content, False
+        if target == "Method" and "method" not in section.lower() and "approach" not in section.lower():
+            return content, False
 
         # Find the end of the paragraph containing the \ref.
         # Top-venue convention: figure floats go right after the paragraph
-        # that first discusses them. LaTeX [t!] places at top of the NEXT
+        # that first discusses them. LaTeX [htbp] allows placement near the paragraph that first discusses them
         # column/page, so visually the figure lands close to the reference.
         search_start = match.end()
         para_end = re.search(
@@ -220,6 +292,49 @@ class _LaTeXBibFiguresMixin:
             + content[insert_pos:]
         )
         return new_content, True
+
+    @staticmethod
+    def _find_subsection_end_for_figure(content: str, fig_label: str, file_hint: str = "") -> int | None:
+        r"""Find a result subsection for fallback figure placement.
+
+        Result figures must be placed inside the Experiments section. Without
+        this bound, an efficiency or complexity figure can accidentally match a
+        Method subsection and appear before the experimental evidence.
+        """
+        hint = f"{fig_label} {file_hint}".lower()
+        if not hint.strip():
+            return None
+        if any(k in hint for k in ("complexity", "efficiency", "runtime", "cost", "optimization", "history", "pareto", "tradeoff", "trade_off", "sparsity")):
+            wanted = ("optimization", "complexity", "efficiency", "runtime", "cost", "trade")
+        elif "ablation" in hint or "variant" in hint:
+            wanted = ("ablation", "component")
+        elif any(k in hint for k in ("main", "result", "comparison", "performance", "accuracy", "baseline")):
+            wanted = ("main", "result", "comparison", "performance")
+        else:
+            return None
+
+        exp_m = re.search(r'\\section\*?\{[^}]*Experiment[^}]*\}', content, re.IGNORECASE)
+        if not exp_m:
+            return None
+        exp_start = exp_m.end()
+        exp_tail = content[exp_start:]
+        exp_end_m = re.search(
+            r'\\section\*?\{|\\bibliographystyle\{|\\bibliography\{|\\begin\{thebibliography\}|\\end\{document\}',
+            exp_tail,
+        )
+        exp_end = exp_start + exp_end_m.start() if exp_end_m else len(content)
+        exp_body = content[exp_start:exp_end]
+
+        sub_pattern = re.compile(r'\\subsection\*?\{([^}]*)\}', re.IGNORECASE)
+        matches = list(sub_pattern.finditer(exp_body))
+        for i, match in enumerate(matches):
+            title = match.group(1).lower()
+            if not any(key in title for key in wanted):
+                continue
+            start = match.end()
+            next_sub = matches[i + 1].start() if i + 1 < len(matches) else len(exp_body)
+            return exp_start + next_sub
+        return None
 
     @staticmethod
     def _find_section_end(content: str, section_heading: str) -> int | None:
@@ -307,19 +422,27 @@ class _LaTeXBibFiguresMixin:
         incl_m = re.search(r'\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}', figure_block)
         file_hint = (incl_m.group(1).lower() if incl_m else "")
 
-        for keyword, section in cls._FIGURE_SECTION_HINTS:
-            if keyword in fig_key_lower or keyword in file_hint:
-                target_section = section
-                break
+        target_section = cls._figure_target_section(f"{fig_key_lower} {file_hint}")
 
-        if not target_section:
-            # Default: figures without hints go in Experiments
-            target_section = "Experiments"
-
-        sec_end = cls._find_section_end(content, target_section)
+        sec_end = cls._find_subsection_end_for_figure(content, fig_key_lower, file_hint)
+        placement_name = "matching subsection" if sec_end is not None else target_section
+        if sec_end is None:
+            sec_end = cls._find_section_end(content, target_section)
         if sec_end is not None:
-            # Insert at the end of the section (before the next \section)
-            # But back up before any trailing blank lines
+            # Insert before local closing prose when possible, so fallback figure
+            # placement does not push experiment-summary paragraphs away from
+            # the evidence they summarize.
+            window_start = max(0, sec_end - 1800)
+            tail = content[window_start:sec_end]
+            for marker in (
+                "\nOverall, the experimental section",
+                "\nOverall, the experiments",
+                "\nTaken together,",
+            ):
+                marker_pos = tail.find(marker)
+                if marker_pos >= 0:
+                    sec_end = window_start + marker_pos
+                    break
             while sec_end > 0 and content[sec_end - 1] in ('\n', '\r', ' ', '\t'):
                 sec_end -= 1
             content = (
@@ -328,8 +451,8 @@ class _LaTeXBibFiguresMixin:
                 + content[sec_end:]
             )
             logger.info(
-                "Placed figure (label=%s) at end of \\section{%s}",
-                fig_label, target_section,
+                "Placed figure (label=%s) at end of %s",
+                fig_label, placement_name,
             )
             return content
 
@@ -396,7 +519,7 @@ class _LaTeXBibFiguresMixin:
             include_name = pdf_name if fig_data.get("pdf_path") else png_name
 
             block = (
-                "\\begin{figure}[t!]\n"
+                "\\begin{figure}[htbp]\n"
                 "\\centering\n"
                 f"\\includegraphics[width=0.85\\textwidth, "
                 f"height=0.32\\textheight, keepaspectratio]"

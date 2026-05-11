@@ -26,9 +26,9 @@ def _detect_bib_entry_type(venue: str) -> tuple[str, str]:
     return "article", "journal"
 
 
-MAX_REVISION_ROUNDS = 5
+MAX_REVISION_ROUNDS = 3
 MAX_LATEX_FIX_ATTEMPTS = 3  # compile-fix loop iterations
-MIN_SECTION_SCORE = 8  # Sections scoring below this get revised
+MIN_SECTION_SCORE = 6  # Only substantially weak sections get revised by default
 CONVERGENCE_THRESHOLD = 0.3  # Stop if avg score improves by less than this
 
 # ---- Pre-compiled regex patterns (R2 perf fix) ----

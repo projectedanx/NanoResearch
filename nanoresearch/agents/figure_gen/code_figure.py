@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
 import logging
 import re
 import subprocess
@@ -41,6 +43,7 @@ class _CodeFigureMixin:
         """
         filename_stem = fig_key
         figure_code_config = self.config.for_stage("figure_code")
+        self.log(f"  {fig_key} chart code model={figure_code_config.model}")
         png_path = Path(output_path)
         png_path.parent.mkdir(parents=True, exist_ok=True)
         last_error = ""
@@ -205,19 +208,88 @@ class _CodeFigureMixin:
 
         # All retries exhausted — use fallback placeholder
         self.log(f"  {fig_key} all {MAX_CODE_CHART_RETRIES} attempts failed, using fallback")
-        result = await self._generate_fallback_chart(fig_key, filename_stem, caption)
+        result = await self._generate_fallback_chart(fig_key, filename_stem, caption, user_prompt=user_prompt, last_error=last_error)
         result["is_fallback"] = True
         return result
 
     async def _generate_fallback_chart(
         self, fig_key: str, filename_stem: str, caption: str,
+        user_prompt: str = "", last_error: str = "",
     ) -> dict[str, Any]:
-        """Return a failed status dict — do NOT generate a placeholder image.
+        """Fallback for failed figure generation.
 
-        Previously this generated a "Chart generation failed" placeholder PNG.
-        Now we simply mark the figure as failed so the LaTeX assembler skips it
-        entirely, rather than embedding a useless placeholder in the paper.
+        Data charts are marked failed rather than filled with made-up values.
+        Conceptual figures get a deterministic schematic so the paper still has
+        a method/architecture diagram when the image API is unavailable.
         """
+        key_l = fig_key.lower()
+        diagram_keywords = (
+            "framework", "overview", "architecture", "pipeline", "model",
+            "workflow", "taxonomy", "qualitative", "example", "diagram",
+        )
+        if any(kw in key_l for kw in diagram_keywords):
+            png_path = self.workspace.path / "figures" / f"{filename_stem}.png"
+            png_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                import matplotlib.pyplot as plt
+                from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
+
+                prompt_text = user_prompt or caption or fig_key
+
+                def _pick(patterns, default):
+                    for pat in patterns:
+                        m = re.search(pat, prompt_text, re.IGNORECASE)
+                        if m:
+                            value = re.sub(r"[_\s]+", " ", m.group(1)).strip(" .,:;`'\"")
+                            if value:
+                                return value[:32]
+                    return default
+
+                dataset = _pick([r"dataset[s]?:\s*([^\n;]+)", r"on\s+([A-Za-z0-9_ -]*(?:cancer|mnist|cifar|uci|sklearn)[A-Za-z0-9_ -]*)"], "Dataset")
+                method = _pick([r"proposed method[:\s]+([^\n;]+)", r"method[:\s]+([^\n;]+)", r"propose\s+([^\n.;]+)"], "Proposed method")
+                objective = _pick([r"objective[s]?:\s*([^\n;]+)", r"optimi[sz]es?\s+([^\n.;]+)"], "Training objective")
+                labels = [dataset, "Preprocess", method, objective, "Evaluation"]
+                colors = ["#E8F1F8", "#D9EAD3", "#FCE5CD", "#D9E2F3", "#EADCF8"]
+                fig, ax = plt.subplots(figsize=(7.0, 2.8))
+                ax.set_xlim(0, 10)
+                ax.set_ylim(0, 3)
+                ax.axis("off")
+                for i, (label, color) in enumerate(zip(labels, colors)):
+                    x = 0.35 + i * 1.9
+                    box = FancyBboxPatch(
+                        (x, 1.05), 1.35, 0.85,
+                        boxstyle="round,pad=0.08,rounding_size=0.08",
+                        linewidth=1.2, edgecolor="#333333", facecolor=color,
+                    )
+                    ax.add_patch(box)
+                    ax.text(x + 0.675, 1.475, label, ha="center", va="center", fontsize=9)
+                    if i < len(labels) - 1:
+                        ax.add_patch(FancyArrowPatch(
+                            (x + 1.38, 1.475), (x + 1.85, 1.475),
+                            arrowstyle="-|>", mutation_scale=12, linewidth=1.1, color="#333333",
+                        ))
+                title = method if method != "Proposed method" else caption or fig_key.replace("_", " ").title()
+                title = title.replace("Fig1 Framework", "Method workflow")[:70]
+                ax.text(5, 2.45, title, ha="center", va="center", fontsize=11, fontweight="bold")
+                fig.tight_layout(pad=0.2)
+                fig.savefig(png_path, dpi=240, bbox_inches="tight", facecolor="white")
+                plt.close(fig)
+                result = await self._save_figure_files(
+                    fig_key, filename_stem, caption, png_path.read_bytes(),
+                    already_saved=True, code_generated=True,
+                )
+                result["is_fallback"] = True
+                result["fallback_type"] = "deterministic_concept_diagram"
+                return result
+            except Exception as exc:
+                self.log(f"  {fig_key} deterministic diagram fallback failed: {exc}")
+
+        image_result = await self._generate_image2_result_fallback(
+            fig_key, filename_stem, caption, user_prompt, last_error
+        )
+        if image_result is not None:
+            return image_result
+
         self.log(f"  {fig_key} chart generation failed — marking as failed (no placeholder)")
         return {
             "fig_key": fig_key,
@@ -225,6 +297,88 @@ class _CodeFigureMixin:
             "status": "failed",
             "error": "Chart generation failed after all retries",
         }
+
+    async def _generate_image2_result_fallback(
+        self,
+        fig_key: str,
+        filename_stem: str,
+        caption: str,
+        chart_prompt: str,
+        last_error: str,
+    ) -> dict[str, Any] | None:
+        """Generate a result figure with the image model when chart code fails.
+
+        The prompt writer is explicitly constrained to use only numbers already
+        present in the chart prompt/evidence block. If no evidence numbers are
+        present, this returns None rather than fabricating a chart.
+        """
+        if not chart_prompt or not re.search(r"[-+]?\d+(?:\.\d+)?", chart_prompt):
+            return None
+        prompt_config = self.config.for_stage("figure_prompt")
+        image_config = self.config.for_stage("figure_gen")
+        system = (
+            "You write prompts for scientific result figures. Use only the "
+            "numbers explicitly present in the supplied evidence. Never invent, "
+            "estimate, smooth, or add values. If evidence is insufficient, return "
+            "JSON with can_generate=false."
+        )
+        user = (
+            f"The matplotlib code chart for {fig_key} failed.\n"
+            f"Failure reason: {last_error[:800]}\n\n"
+            f"Chart/evidence prompt:\n{chart_prompt[:5000]}\n\n"
+            "Return JSON: {\"can_generate\": true/false, "
+            "\"image_prompt\": \"prompt for a clean 2D academic result figure using only evidence numbers\", "
+            "\"data_sources\": [\"source labels copied from evidence\"]}. "
+            "If can_generate=true, the image_prompt must explicitly state that all plotted numbers "
+            "come from the provided evidence and must include those numbers verbatim."
+        )
+        try:
+            payload = await self.generate_json(system, user, stage_override=prompt_config)
+        except Exception as exc:
+            self.log(f"  {fig_key} image fallback prompt generation failed: {exc}")
+            return None
+        if not isinstance(payload, dict) or not payload.get("can_generate"):
+            return None
+        image_prompt = str(payload.get("image_prompt") or "").strip()
+        if not image_prompt:
+            return None
+        self.workspace.write_text(f"figures/{filename_stem}_image2_fallback_prompt.txt", image_prompt)
+        try:
+            image_payload = await self._generate_image_with_backend_fallback(
+                image_config, image_prompt, prefer_image2=True,
+            )
+            if not image_payload:
+                return None
+            b64_image, used_config, backend_meta = image_payload
+            result = await self._save_figure_files(
+                fig_key, filename_stem, caption, base64.b64decode(b64_image)
+            )
+            result.update(backend_meta)
+            result.update({
+                "is_fallback": True,
+                "fallback_type": "image2_result_figure",
+                "prompt_model": prompt_config.model,
+                "image_model": used_config.model,
+                "data_sources": payload.get("data_sources") if isinstance(payload.get("data_sources"), list) else [],
+                "code_attempts": MAX_CODE_CHART_RETRIES,
+                "failure_reason": last_error[:1000],
+                "generation_prompt": image_prompt,
+            })
+            self.workspace.write_text(
+                f"figures/{filename_stem}_image2_fallback_meta.json",
+                json.dumps({
+                    "fallback_type": "image2_result_figure",
+                    "prompt_model": prompt_config.model,
+                    "image_model": image_config.model,
+                    "data_sources": result["data_sources"],
+                    "code_attempts": MAX_CODE_CHART_RETRIES,
+                    "failure_reason": last_error[:1000],
+                }, indent=2),
+            )
+            return result
+        except Exception as exc:
+            self.log(f"  {fig_key} image2 result fallback failed: {exc}")
+            return None
 
     # -----------------------------------------------------------------------
     # Shared: save PNG + PDF + register artifacts

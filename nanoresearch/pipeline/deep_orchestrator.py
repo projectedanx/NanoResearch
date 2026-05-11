@@ -307,6 +307,7 @@ class DeepPipelineOrchestrator(BaseOrchestrator):
                 or exec_output.get("final_status", "pending")
             )
             inputs["writing_grounding"] = writing_output.get("grounding", {})
+            inputs["paper_structure_plan"] = writing_output.get("paper_structure_plan", {})
 
         if last_error:
             inputs["_retry_error"] = last_error

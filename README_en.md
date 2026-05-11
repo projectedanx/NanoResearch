@@ -348,7 +348,7 @@ pip install -e ".[dev]"
 ### Step 2: Configure
 
 > [!TIP]
-> Create `~/.nanobot/config.json`. Replace `base_url` and `api_key` with your own OpenAI-compatible API endpoint.
+> Create `~/.nanoresearch/config.json`. Replace `base_url` and `api_key` with your own OpenAI-compatible API endpoint.
 
 <details>
 <summary><b>View full configuration example</b></summary>
@@ -368,9 +368,13 @@ pip install -e ".[dev]"
     "planning": { "model": "your-model", "temperature": 0.2, "max_tokens": 16384, "timeout": 600.0 },
     "code_gen": { "model": "your-model", "temperature": 0.1, "max_tokens": 16384, "timeout": 600.0 },
     "writing": { "model": "your-model", "temperature": 0.4, "max_tokens": 16384, "timeout": 600.0 },
+    "figure_prompt": { "model": "pro/gpt-5.5", "temperature": 0.5, "max_tokens": 4096, "timeout": 300.0 },
+    "figure_code": { "model": "pro/gpt-5.5", "temperature": 0.1, "max_tokens": 16384, "timeout": 600.0 },
     "figure_gen": {
-      "model": "gemini-3.1-flash-image-preview",
-      "image_backend": "gemini",
+      "model": "gpt-image-2",
+      "image_backend": "openai",
+      "base_url": "https://your-image-endpoint/v1/",
+      "api_key": "your-image-api-key",
       "temperature": null,
       "timeout": 300.0
     },
@@ -393,10 +397,10 @@ nanoresearch run --topic "Adaptive Sparse Attention Mechanisms" --dry-run
 nanoresearch run --topic "Adaptive Sparse Attention Mechanisms" --format neurips2025 --verbose
 
 # Resume from checkpoint (if a stage fails)
-nanoresearch resume --workspace ~/.nanobot/workspace/research/{session_id} --verbose
+nanoresearch resume --workspace ~/.nanoresearch/workspace/research/{session_id} --verbose
 
 # Export paper
-nanoresearch export --workspace ~/.nanobot/workspace/research/{session_id} --output ./my_paper
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./my_paper
 ```
 
 ### Step 4: Expected Output
@@ -411,14 +415,14 @@ After the pipeline completes, you will have paper figures and LaTeX sources back
 |-------|------|-------------|-----------------|
 | `ideation` | Literature search + hypothesis | DeepSeek-V3.2 | DeepSeek-V3.2 |
 | `planning` | Experiment design | Claude Sonnet 4.6 | DeepSeek-V3.2 |
-| `code_gen` | Code generation | GPT-5.2-Codex / Claude Opus 4.6 | DeepSeek-V3.2 |
-| `writing` | Paper writing | Claude Opus 4.6 / Claude Sonnet 4.6 | DeepSeek-V3.2 |
-| `figure_prompt` | Figure description | GPT-5.2 | DeepSeek-V3.2 |
-| `figure_code` | Chart plotting code | Claude Opus 4.6 | DeepSeek-V3.2 |
-| `figure_gen` | AI architecture diagrams | Gemini 3.1 Flash (native image) | Gemini 3.1 Flash |
-| `review` | Review + revision | Claude Sonnet 4.6 / Gemini Flash | DeepSeek-V3.2 |
+| `code_gen` | Code generation | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `writing` | Paper writing | pro/gpt-5.5 / Claude Sonnet 4.6 | DeepSeek-V3.2 |
+| `figure_prompt` | Figure description | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `figure_code` | Chart plotting code | pro/gpt-5.5 | DeepSeek-V3.2 |
+| `figure_gen` | AI architecture diagrams | gpt-image-2 (OpenAI-compatible image API) | gpt-image-2 |
+| `review` | Review + revision | DeepSeek-V3.2 / pro/gpt-5.5 | DeepSeek-V3.2 |
 
-> **Note:** All text models are accessed through a single OpenAI-compatible endpoint. Set `temperature: null` for models that don't support it (e.g., Codex, o-series). The `figure_gen` stage uses the Gemini native image generation API and requires `"image_backend": "gemini"`.
+> **Note:** All text models are accessed through a single OpenAI-compatible endpoint. Set `temperature: null` for models that don't support it (e.g., Codex, o-series). The `figure_gen` stage uses an OpenAI-compatible image API; use model `gpt-image-2` with `"image_backend": "openai"`.
 
 ### 💰 Estimated Cost
 
@@ -610,7 +614,7 @@ Official examples and advanced usage to get you started with NanoResearch:
 nanoresearch run --topic "Adaptive Sparse Attention" --format neurips2025 --verbose
 
 # Export and inspect
-nanoresearch export --workspace ~/.nanobot/workspace/research/{session_id} --output ./paper_out
+nanoresearch export --workspace ~/.nanoresearch/workspace/research/{session_id} --output ./paper_out
 ```
 
 > Paper-only (skip experiments): Set `"skip_stages": ["SETUP", "CODING", "EXECUTION", "ANALYSIS"]` in config.
@@ -643,7 +647,7 @@ my_paper/
 <summary><b>Full workspace (with intermediate artifacts)</b></summary>
 
 ```text
-~/.nanobot/workspace/research/{session_id}/
+~/.nanoresearch/workspace/research/{session_id}/
 ├── manifest.json          # Pipeline state tracker
 ├── papers/                # Literature search artifacts
 ├── plans/                 # Experiment blueprints and analysis
@@ -680,7 +684,7 @@ export FEISHU_APP_ID="cli_xxx"
 export FEISHU_APP_SECRET="xxx"
 ```
 
-Or add to `~/.nanobot/config.json`:
+Or add to `~/.nanoresearch/config.json`:
 
 ```json
 {

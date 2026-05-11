@@ -35,7 +35,7 @@ class _CondaMixin:
 
         Steps:
         1. Check if env already exists (resume idempotency).
-        2. Create bare env with Python 3.11.
+        2. Create bare env with Python 3.10.
         3. If GPU detected → ``_install_torch_conda()``.
         4. ``install_requirements()`` for remaining pip deps.
         5. ``validate_runtime()``.
@@ -58,7 +58,7 @@ class _CondaMixin:
                 proc = await loop.run_in_executor(
                     None,
                     lambda: subprocess.run(
-                        [cmd, "create", "-y", "-n", env_name, "python=3.11"],
+                        [cmd, "create", "-y", "-n", env_name, "python=3.10"],
                         capture_output=True, text=True, timeout=600,
                     ),
                 )

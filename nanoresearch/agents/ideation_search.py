@@ -38,8 +38,13 @@ class _IdeationSearchMixin:
             self.log("No search queries available, skipping literature search")
             return []
 
-        search_arxiv = await _get_arxiv_search()
-        search_oa = await _get_oa_search()
+        sources = {str(src).lower() for src in getattr(self.config, "literature_sources", ["openalex"])}
+        use_openalex = "openalex" in sources
+        use_arxiv = "arxiv" in sources
+        use_web = "web" in sources or "web_search" in sources
+        use_pwc = "paperswithcode" in sources or "pwc" in sources
+        search_arxiv = await _get_arxiv_search() if use_arxiv else None
+        search_oa = await _get_oa_search() if use_openalex else None
         success_count = 0
 
         for query in queries[:MAX_SEARCH_QUERIES]:
@@ -61,80 +66,83 @@ class _IdeationSearchMixin:
                     logger.warning("[%s] OpenAlex search failed for '%s': %s",
                                    self.stage.value, query, e)
 
-            try:
-                arxiv_results = await search_arxiv(
-                    query, max_results=MAX_RESULTS_PER_SEARCH,
-                    categories=["cs.LG", "cs.AI", "cs.CV", "cs.CL",
-                                "q-bio.BM", "q-bio.QM", "physics.chem-ph",
-                                "cond-mat.mtrl-sci", "stat.ML"],
-                )
-                for p in arxiv_results:
-                    key = self._dedup_key(p)
-                    if key and key not in all_papers:
-                        all_papers[key] = p
-                if arxiv_results:
-                    success_count += 1
-            except Exception as e:
-                logger.warning("[%s] arXiv search failed for '%s': %s",
-                               self.stage.value, query, e)
+            if search_arxiv:
+                try:
+                    arxiv_results = await search_arxiv(
+                        query, max_results=MAX_RESULTS_PER_SEARCH,
+                        categories=["cs.LG", "cs.AI", "cs.CV", "cs.CL",
+                                    "q-bio.BM", "q-bio.QM", "physics.chem-ph",
+                                    "cond-mat.mtrl-sci", "stat.ML"],
+                    )
+                    for p in arxiv_results:
+                        key = self._dedup_key(p)
+                        if key and key not in all_papers:
+                            all_papers[key] = p
+                    if arxiv_results:
+                        success_count += 1
+                except Exception as e:
+                    logger.warning("[%s] arXiv search failed for '%s': %s",
+                                   self.stage.value, query, e)
 
         if success_count == 0 and queries:
             logger.warning("[%s] All search queries failed, literature coverage may be poor",
                            self.stage.value)
 
-        try:
-            from mcp_server.tools.web_search import search_web
-            for query in queries[:2]:
-                web_results = await search_web(f"academic paper {query}", max_results=5)
-                for wr in web_results:
-                    title = wr.get("title", "").strip()
-                    paper_dict = {
-                        "title": title,
-                        "url": wr.get("url", ""),
-                        "abstract": wr.get("snippet", ""),
-                        "authors": [],
-                        "year": None,
-                        "citation_count": 0,
-                    }
-                    url_lower = wr.get("url", "").lower()
-                    is_academic = any(
-                        domain in url_lower
-                        for domain in ("arxiv", "semanticscholar", "acl", "openreview",
-                                       "neurips", "icml", "iclr", "aaai", "ieee", "acm")
-                    )
-                    key = self._dedup_key(paper_dict)
-                    if key and key not in all_papers and is_academic:
-                        all_papers[key] = paper_dict
-        except Exception as e:
-            logger.info("[%s] Web search supplementation skipped: %s", self.stage.value, e)
-
-        try:
-            from mcp_server.tools.paperswithcode import search_tasks
-            for query in queries[:2]:
-                pwc_tasks = await search_tasks(query)
-                for task in pwc_tasks[:3]:
-                    task_name = task.get("name", "")
-                    if not task_name:
-                        continue
-                    logger.info("[%s] Found PwC task: %s", self.stage.value, task_name)
-                    for paper in task.get("papers", [])[:3]:
-                        title = (paper.get("title", "") or "").strip()
-                        if not title:
-                            continue
+        if use_web:
+            try:
+                from mcp_server.tools.web_search import search_web
+                for query in queries[:2]:
+                    web_results = await search_web(f"academic paper {query}", max_results=5)
+                    for wr in web_results:
+                        title = wr.get("title", "").strip()
                         paper_dict = {
                             "title": title,
-                            "url": paper.get("url", ""),
-                            "abstract": paper.get("abstract", ""),
-                            "authors": paper.get("authors", []),
-                            "year": paper.get("year"),
+                            "url": wr.get("url", ""),
+                            "abstract": wr.get("snippet", ""),
+                            "authors": [],
+                            "year": None,
                             "citation_count": 0,
-                            "source": "paperswithcode",
                         }
+                        url_lower = wr.get("url", "").lower()
+                        is_academic = any(
+                            domain in url_lower
+                            for domain in ("arxiv", "semanticscholar", "acl", "openreview",
+                                           "neurips", "icml", "iclr", "aaai", "ieee", "acm")
+                        )
                         key = self._dedup_key(paper_dict)
-                        if key and key not in all_papers:
+                        if key and key not in all_papers and is_academic:
                             all_papers[key] = paper_dict
-        except Exception as e:
-            logger.info("[%s] PapersWithCode search skipped: %s", self.stage.value, e)
+            except Exception as e:
+                logger.info("[%s] Web search supplementation skipped: %s", self.stage.value, e)
+
+        if use_pwc:
+            try:
+                from mcp_server.tools.paperswithcode import search_tasks
+                for query in queries[:2]:
+                    pwc_tasks = await search_tasks(query)
+                    for task in pwc_tasks[:3]:
+                        task_name = task.get("name", "")
+                        if not task_name:
+                            continue
+                        logger.info("[%s] Found PwC task: %s", self.stage.value, task_name)
+                        for paper in task.get("papers", [])[:3]:
+                            title = (paper.get("title", "") or "").strip()
+                            if not title:
+                                continue
+                            paper_dict = {
+                                "title": title,
+                                "url": paper.get("url", ""),
+                                "abstract": paper.get("abstract", ""),
+                                "authors": paper.get("authors", []),
+                                "year": paper.get("year"),
+                                "citation_count": 0,
+                                "source": "paperswithcode",
+                            }
+                            key = self._dedup_key(paper_dict)
+                            if key and key not in all_papers:
+                                all_papers[key] = paper_dict
+            except Exception as e:
+                logger.info("[%s] PapersWithCode search skipped: %s", self.stage.value, e)
 
         return list(all_papers.values())
 

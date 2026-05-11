@@ -32,6 +32,59 @@ class _QuickEvalHelpersMixin:
         if expected_keys & set(data.keys()):
             normalized = dict(data)
 
+            for result_key in ("main_results", "ablation_results"):
+                entries = normalized.get(result_key)
+                if isinstance(entries, dict):
+                    converted_entries = []
+                    for entry_name, entry_value in entries.items():
+                        if not isinstance(entry_value, dict):
+                            continue
+                        fixed_entry = dict(entry_value)
+                        fixed_entry.setdefault("run_id", str(entry_name))
+                        if result_key == "main_results":
+                            fixed_entry.setdefault(
+                                "method_name",
+                                str(
+                                    fixed_entry.get("method")
+                                    or fixed_entry.get("model_name")
+                                    or entry_name
+                                ),
+                            )
+                            fixed_entry.setdefault(
+                                "is_proposed",
+                                str(fixed_entry.get("role") or "").lower() == "proposed",
+                            )
+                        else:
+                            fixed_entry.setdefault(
+                                "variant_name",
+                                str(
+                                    fixed_entry.get("variant_name")
+                                    or fixed_entry.get("method")
+                                    or entry_name
+                                ),
+                            )
+                        metric_list = _metric_entries_from_mapping(fixed_entry)
+                        if metric_list:
+                            fixed_entry["metrics"] = metric_list
+                        converted_entries.append(fixed_entry)
+                    normalized[result_key] = converted_entries
+                    entries = converted_entries
+
+                if not isinstance(entries, list):
+                    continue
+                fixed_entries = []
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    fixed_entry = dict(entry)
+                    metrics = fixed_entry.get("metrics")
+                    if not isinstance(metrics, list) or not metrics:
+                        metric_list = _metric_entries_from_mapping(fixed_entry)
+                        if metric_list:
+                            fixed_entry["metrics"] = metric_list
+                    fixed_entries.append(fixed_entry)
+                normalized[result_key] = fixed_entries
+
             if not normalized.get("main_results"):
                 summary_candidates = [
                     normalized.get("results"),

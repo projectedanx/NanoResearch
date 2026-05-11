@@ -248,21 +248,22 @@ Return JSON:
         elif "method" in section_lower or "approach" in section_lower:
             return (
                 "SECTION-SPECIFIC GUIDANCE (Method):\n"
-                "- Include a formal problem definition with mathematical notation\n"
-                "- Describe each component with equations\n"
-                "- Use \\begin{equation} for key formulas, number them for reference\n"
-                "- Explain the intuition behind each design choice\n"
-                "- Reference the architecture figure if available (Figure~\\ref{fig:framework})"
+                "- Preserve or create at least three technical subsections: problem/protocol, search objective, final selection/refit/complexity\n"
+                "- Include a formal problem definition with mathematical notation and enough prose to explain every symbol\n"
+                "- Describe each component with equations, but split long equations with aligned environments when needed\n"
+                "- Explain the intuition behind each design choice and how leakage is avoided\n"
+                "- Reference only method/framework figures in this section; do not move result, ablation, efficiency, or complexity figures from Experiments into Method\n"
+                "- Keep the Method section substantive; do not compress it below roughly 700 words unless the original section is shorter"
             )
         elif "experiment" in section_lower or "result" in section_lower:
             return (
                 "SECTION-SPECIFIC GUIDANCE (Experiments):\n"
-                "- Describe datasets with statistics (size, splits, metrics)\n"
-                "- List all baselines with brief descriptions and citations\n"
-                "- Present main results in a table (Table~\\ref{tab:main_results})\n"
-                "- Include ablation study results\n"
-                "- Discuss why your method outperforms baselines\n"
-                "- ALL numeric values in tables must be concrete, never '--' or 'N/A'"
+                "- Preserve the artifact-grounded structure: protocol, main results, ablation study, optimization/complexity analysis, and evidence scope when present\n"
+                "- Discuss datasets, splits, metrics, baselines, proposed method, ablations, and complexity diagnostics as one argument rather than as isolated figure captions\n"
+                "- Keep Table~\\ref{tab:main_results}, Table~\\ref{tab:ablation}, and all result figures intact if they are present\n"
+                "- Interpret measured baselines fairly; do not claim broad superiority when the proposed method trades a small accuracy drop for compactness\n"
+                "- If an experiment category is absent from artifacts, frame it as a limitation or future work instead of inventing values\n"
+                "- ALL numeric values in tables must remain exactly grounded in the run artifacts; never fabricate, upgrade, or smooth results"
             )
         elif "conclusion" in section_lower:
             return (

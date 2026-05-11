@@ -314,6 +314,15 @@ class _LocalRunnerMixin(
                     stderr_snippet=str(stderr_snippet)[:1000],
                     max_rounds=max_rounds,
                 )
+                if (
+                    getattr(self.config, "strict_experiment_contract", False)
+                    and quick_eval.get("status") == "success"
+                    and quick_eval.get("metrics")
+                ):
+                    analysis.should_continue = False
+                    analysis.termination_reason = "target_met"
+                    if not analysis.recommended_action:
+                        analysis.recommended_action = "Measured experiment contract satisfied; proceed to analysis."
 
                 round_result = RoundResult(
                     round_number=round_num,
@@ -376,7 +385,9 @@ class _LocalRunnerMixin(
                 final_status="COMPLETED" if best_round_data.get("quick_eval_status") in ("success", "partial") else "FAILED",
             )
             experiment_status = str(result_contract.get("status", "failed"))
-            final_status = "COMPLETED" if experiment_status in {"success", "partial"} else "FAILED"
+            strict_contract = bool(getattr(self.config, "strict_experiment_contract", False))
+            accepted_statuses = {"success"} if strict_contract else {"success", "partial"}
+            final_status = "COMPLETED" if experiment_status in accepted_statuses else "FAILED"
             self._append_remediation_entry(
                 remediation_ledger,
                 kind="result_contract_validation",

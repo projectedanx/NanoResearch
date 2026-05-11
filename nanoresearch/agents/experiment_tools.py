@@ -144,9 +144,21 @@ def _resolve(path: str, base: Path | None) -> Path:
     return p
 
 
+def _is_within_base(path: Path, base: Path | None) -> bool:
+    if base is None:
+        return True
+    try:
+        path.resolve().relative_to(base.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 async def _read_file(path: str, _base: Path | None = None) -> dict[str, Any]:
     """Read a file and return its contents."""
     p = _resolve(path, _base)
+    if not _is_within_base(p, _base):
+        return {"error": f"Path traversal blocked: {path} is outside work directory"}
     if not p.exists():
         return {"error": f"File not found: {path}"}
     if not p.is_file():
@@ -172,11 +184,8 @@ async def _write_file(path: str, content: str, _base: Path | None = None) -> dic
         return {"error": f"Content too large ({len(content)} chars, max {_MAX_WRITE_SIZE})"}
     p = _resolve(path, _base)
     # Safety: restrict writes to within the work directory (if set)
-    if _base is not None:
-        try:
-            p.resolve().relative_to(_base.resolve())
-        except ValueError:
-            return {"error": f"Path traversal blocked: {path} is outside work directory"}
+    if not _is_within_base(p, _base):
+        return {"error": f"Path traversal blocked: {path} is outside work directory"}
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -241,7 +250,10 @@ async def _run_command(
     timeout = min(timeout, _CMD_TIMEOUT_MAX)
     # Resolve workdir: explicit workdir > _base > None (inherit cwd)
     if workdir:
-        cwd = workdir
+        cwd_path = _resolve(workdir, _base)
+        if not _is_within_base(cwd_path, _base):
+            return {"error": f"workdir traversal blocked: {workdir} is outside work directory"}
+        cwd = str(cwd_path)
     elif _base is not None:
         cwd = str(_base)
     else:

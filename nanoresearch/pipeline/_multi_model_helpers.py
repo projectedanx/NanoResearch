@@ -206,27 +206,67 @@ class _MultiModelHelpersMixin:
     ) -> list[str]:
         """Generate images via OpenAI /v1/images/generations (DALL-E)."""
         timeout = config.timeout or self._config.timeout
-        client = self._get_client(timeout, config.base_url, config.api_key)
+        # Image gateways differ widely in latency.  Respect per-stage timeouts
+        # for fallback models so an unavailable primary image2 service does not
+        # block the whole paper pipeline for several minutes per attempt.
+        image_timeout = min(max(float(timeout), 60.0), 300.0)
+        client = self._get_client(timeout, config.base_url, config.api_key).with_options(
+            max_retries=0,
+            timeout=httpx.Timeout(image_timeout, connect=15.0),
+        )
 
-        logger.debug("Generating image (openai) model=%s size=%s", config.model, size)
+        logger.info(
+            "Generating image via OpenAI-compatible image API model=%s size=%s base_url=%s",
+            config.model,
+            size,
+            (config.base_url or self._config.base_url or "<default>"),
+        )
 
         loop = asyncio.get_running_loop()
         last_exc: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(1):
             t0_ig = time.monotonic()
             try:
-                response = await loop.run_in_executor(
-                    None,
-                    partial(
-                        client.images.generate,
-                        model=config.model,
-                        prompt=prompt,
-                        size=size,
-                        quality=quality,
-                        n=1,
-                        response_format="b64_json",
-                    ),
-                )
+                portable_image2 = "gpt-image-2" in str(config.model).lower()
+                request_kwargs = {
+                    "model": config.model,
+                    "prompt": prompt,
+                    "size": size,
+                    "n": 1,
+                }
+                if not portable_image2:
+                    request_kwargs["response_format"] = "b64_json"
+                    if quality:
+                        request_kwargs["quality"] = quality
+                try:
+                    response = await loop.run_in_executor(
+                        None,
+                        partial(client.images.generate, **request_kwargs),
+                    )
+                except Exception as first_exc:
+                    # Some OpenAI-compatible image2 gateways reject quality/response_format
+                    # and return a generic 400 without naming the unsupported field.
+                    # Retry once with the minimal portable request before applying normal backoff.
+                    msg = str(first_exc).lower()
+                    status_code = getattr(getattr(first_exc, "response", None), "status_code", None)
+                    if (
+                        "quality" in msg
+                        or "response_format" in msg
+                        or "unsupported" in msg
+                        or status_code == 400
+                    ):
+                        minimal_kwargs = {
+                            "model": config.model,
+                            "prompt": prompt,
+                            "size": size,
+                            "n": 1,
+                        }
+                        response = await loop.run_in_executor(
+                            None,
+                            partial(client.images.generate, **minimal_kwargs),
+                        )
+                    else:
+                        raise
                 latency_ig = (time.monotonic() - t0_ig) * 1000
                 self._notify_usage(
                     f"[image_gen:{size}:{quality}]", {},
@@ -235,10 +275,27 @@ class _MultiModelHelpersMixin:
                 if not response.data:
                     logger.warning("OpenAI image API returned no images (model=%s)", config.model)
                     return []
-                return [img.b64_json for img in response.data if img.b64_json]
+                images: list[str] = []
+                for img in response.data:
+                    b64 = getattr(img, "b64_json", None)
+                    if b64:
+                        images.append(b64)
+                        continue
+                    url = str(getattr(img, "url", "") or "").strip()
+                    if url:
+                        try:
+                            import base64 as _base64
+
+                            with httpx.Client(timeout=httpx.Timeout(image_timeout, connect=15.0)) as http_client:
+                                image_response = http_client.get(url)
+                                image_response.raise_for_status()
+                            images.append(_base64.b64encode(image_response.content).decode("ascii"))
+                        except Exception as url_exc:
+                            logger.warning("Failed to download generated image URL: %s", url_exc)
+                return images
             except Exception as exc:
                 last_exc = exc
-                if attempt < 2 and self._is_retryable(exc):
+                if attempt < 0 and self._is_retryable(exc):
                     delay = RETRY_BASE_DELAY * (RETRY_BACKOFF ** attempt)
                     logger.warning("Image gen failed (attempt %d/3): %s. Retrying in %.1fs...", attempt + 1, exc, delay)
                     await asyncio.sleep(delay)

@@ -150,11 +150,11 @@ class _CodeRunnerHelpersMixin:
         return []
 
     async def _setup_venv(self, code_dir: Path) -> str:
-        """Prepare an ISOLATED Python environment for experiment execution.
+        """Prepare a Python environment for experiment execution.
 
-        Always creates a fresh venv (or auto-repair conda env) so the user's
-        own environment is never polluted.  The configured experiment_conda_env
-        is intentionally skipped — experiments must be reproducible in isolation.
+        Reuses a configured or already-compatible local environment first,
+        and only creates an isolated per-session environment when no existing
+        runtime satisfies the generated project's imports.
 
         Returns the path to the Python executable.
         """

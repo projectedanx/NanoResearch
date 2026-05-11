@@ -294,11 +294,8 @@ class _LaTeXFigurePlacementMixin:
             text = pat.sub(_move_figs, text)
         return text
 
-    # Labels that are legitimately placed in Introduction (architecture/overview)
-    _INTRO_KEEP_LABELS = re.compile(
-        r'arch|overview|model|framework|pipeline|system|fig1|fig_1',
-        re.IGNORECASE,
-    )
+    # No regular figure belongs in Introduction for generated full papers.
+    _INTRO_KEEP_LABELS = re.compile(r'(?!)', re.IGNORECASE)
 
     @classmethod
     def _relocate_intro_figures(cls, text: str) -> str:
@@ -367,6 +364,32 @@ class _LaTeXFigurePlacementMixin:
         return text
 
     @classmethod
+    def _relocate_conclusion_floats(cls, text: str) -> str:
+        r"""Move figures/tables out of Conclusion and into their proper sections."""
+        m = re.search(r'(\\section\*?\{Conclusion\})(.*?)(?=\\bibliographystyle\{|\\bibliography\{|\\begin\{thebibliography\}|\\end\{document\})', text, re.DOTALL | re.IGNORECASE)
+        if not m:
+            return text
+        body = m.group(2)
+        float_pat = re.compile(r'\\begin\{(figure\*?|table\*?)\}.*?\\end\{\1\}', re.DOTALL)
+        floats = [fm.group(0) for fm in float_pat.finditer(body)]
+        if not floats:
+            return text
+        clean_body = float_pat.sub('', body)
+        text = text[:m.start(2)] + clean_body + text[m.end(2):]
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        for block in floats:
+            if re.match(r'\\begin\{table', block):
+                sec_end = cls._find_section_end(text, 'Experiments')
+                if sec_end is None:
+                    continue
+                while sec_end > 0 and text[sec_end - 1] in ('\n', '\r', ' ', '\t'):
+                    sec_end -= 1
+                text = text[:sec_end] + '\n\n' + block + '\n\n' + text[sec_end:]
+            else:
+                text = cls._smart_place_figure(text, block)
+        return text
+
+    @classmethod
     def _spread_consecutive_figures(cls, text: str) -> str:
         r"""Detect consecutive \begin{figure}...\end{figure} blocks with no
         text paragraph between them and spread them apart.
@@ -378,7 +401,7 @@ class _LaTeXFigurePlacementMixin:
            based on figure-type hints -- matching top-venue conventions.
         3. If re-placement still leaves them consecutive (both referenced
            in the same paragraph), alternate the placement specifier
-           ([t!] -> [b!]) so LaTeX separates them vertically.
+           ([htbp] -> [bp]) so LaTeX separates them vertically.
         """
         fig_env = re.compile(
             r'(\\begin\{figure\*?\})(.*?)(\\end\{figure\*?\})',
@@ -424,11 +447,7 @@ class _LaTeXFigurePlacementMixin:
                     block_b,
                     re.sub(
                         r'\\begin\{(figure\*?)\}\[([^\]]*)\]',
-                        lambda m: (
-                            f'\\begin{{{m.group(1)}}}['
-                            + m.group(2).replace('t', 'b')
-                            + ']'
-                        ),
+                        lambda m: f'\\begin{{{m.group(1)}}}[bp]',
                         block_b,
                         count=1,
                     ),
@@ -436,7 +455,7 @@ class _LaTeXFigurePlacementMixin:
                 )
                 logger.info(
                     "Spread consecutive figures: smart placement insufficient, "
-                    "changed to [b] specifier"
+                    "changed to [bp] specifier"
                 )
                 i += 1
             else:

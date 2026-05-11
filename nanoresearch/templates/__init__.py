@@ -42,3 +42,17 @@ def get_template_path(format_name: str) -> Path:
         raise ValueError(f"Unknown format '{format_name}'. Available: {available}")
 
     return template_path
+
+
+def get_style_files(format_name: str) -> list[Path]:
+    """Return LaTeX style files bundled with a template format.
+
+    Templates may be pure Jinja files with no additional .sty/.cls/.bst
+    resources. In that case this returns an empty list.
+    """
+    template_path = get_template_path(format_name)
+    style_exts = {".sty", ".cls", ".bst", ".bbx", ".cbx"}
+    return sorted(
+        p for p in template_path.iterdir()
+        if p.is_file() and p.suffix.lower() in style_exts
+    )

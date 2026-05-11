@@ -20,7 +20,8 @@ PLANNING_SYSTEM_PROMPT = """You are a research experiment planner. Your task is 
 
 CRITICAL RULES — evidence grounding:
 - NEVER invent baseline performance numbers. Use ONLY numbers from the published evidence provided.
-- If a metric value is not available in the evidence, set it to "N/A" — do NOT guess.
+- If a metric value is not available in the evidence, set it to null — do NOT guess or write "N/A".
+- Prefer baseline methods whose published metric values are present in the retrieved literature evidence; avoid unverifiable baselines when comparable verified baselines exist.
 - For the proposed method, describe expected improvements as a "projected improvement range" (e.g. "5-10% improvement over best baseline"), NOT as exact numbers.
 - Every baseline number MUST have a "performance_provenance" entry citing which paper it came from.
 - Mark proposed-method values as projected: set "is_projected" to true for each metric.
@@ -116,7 +117,7 @@ Design a comprehensive experiment blueprint as JSON with:
    - "name", "description", "source_url", "size_info", "preprocessing_notes"
 4. "baselines": Array of baseline methods, each with:
    - "name", "description", "reference_paper_id"
-   - "expected_performance": dict of metric→value (use ONLY values from the evidence above, or "N/A")
+   - "expected_performance": dict of metric→value (use ONLY values from the evidence above, or null)
    - "performance_provenance": dict of metric→source (e.g. "Abstract of arxiv:2401.00001")
    - "is_projected": dict of metric→bool (true only for proposed method projections)
 5. "proposed_method": Object describing the proposed method with:
@@ -128,9 +129,25 @@ Design a comprehensive experiment blueprint as JSON with:
 8. "compute_requirements": Object with "gpu_type", "num_gpus", "estimated_hours", "memory_gb"
 9. "evidence_summary": Brief summary of which published numbers were used
 10. "data_provenance_note": Statement distinguishing published baseline numbers from projected improvements
+11. "experiment_matrix": Array of machine-checkable run specs. Include at minimum:
+   - one required proposed run with role="proposed" and output_group="main_results"
+   - at least two required measured baseline runs with role="baseline" and output_group="main_results"
+   - at least two required ablation runs with role="ablation" and output_group="ablation_results"
+   - one optimization/history run with role="optimization" and output_group="optimization_history"
+   - one complexity run with role="complexity" and output_group="complexity_metrics"
+   Each run spec MUST include: "run_id", "role", "method", "dataset", "metrics",
+   "required", "output_group", "expected_artifacts", "failure_policy", and "config".
+12. "required_artifacts": include exactly these core artifacts unless a stronger reason is stated:
+   ["configs/experiment_matrix.json", "results/metrics.json", "results/run_manifest.json",
+    "results/final_metrics.json", "results/optimization_history.csv", "results/pareto_front.json"]
+13. "minimum_success_criteria": object with "min_measured_baselines"=2,
+   "min_ablation_runs"=2, "require_proposed"=true, "require_complexity"=true,
+   "require_optimization_history"=true, and "required_metrics".
 
 IMPORTANT: Use ONLY the numbers from the PUBLISHED QUANTITATIVE EVIDENCE section.
-If evidence is missing for a baseline-metric pair, use "N/A".
+Choose baselines with reported OpenAlex/literature evidence when possible, but the experiment_matrix
+means these baselines must be measured by generated code, not copied from papers.
+If evidence is missing for a baseline-metric pair, use null and explain the gap in evidence_summary.
 
 Return ONLY valid JSON."""
 
@@ -169,6 +186,7 @@ Return ONLY valid JSON."""
 
             # Coerce fields the LLM may return as structured objects but schema expects as strings
             result = self._coerce_blueprint_fields(result)
+            result = self._ensure_experiment_contract(result)
 
             try:
                 blueprint = ExperimentBlueprint.model_validate(result)
@@ -199,11 +217,12 @@ Return ONLY valid JSON."""
         primary_metrics = [m.name for m in blueprint.metrics if m.primary] or [m.name for m in blueprint.metrics[:3]]
         primary_metrics_text = ", ".join(primary_metrics)
         dataset_names = ", ".join(ds.name for ds in blueprint.datasets[:3])
+        method_name = self._method_name(blueprint.proposed_method)
         self.remember_context(
             MemoryType.PROJECT_CONTEXT,
-            f"Planning blueprint for {topic}: method={blueprint.proposed_method.name}, datasets={dataset_names}, primary metrics={primary_metrics_text}",
+            f"Planning blueprint for {topic}: method={method_name}, datasets={dataset_names}, primary metrics={primary_metrics_text}",
             importance=0.78,
-            tags=[topic, blueprint.proposed_method.name, "planning"],
+            tags=[topic, method_name, "planning"],
             source="experiment_blueprint",
             topic=topic,
         )
@@ -224,7 +243,7 @@ Return ONLY valid JSON."""
             source="experiment_blueprint",
         )
         planning_trace = (
-            f"Blueprint for {topic}: method={blueprint.proposed_method.name}; "
+            f"Blueprint for {topic}: method={method_name}; "
             f"datasets={[ds.name for ds in blueprint.datasets]}; "
             f"primary_metrics={primary_metrics}; "
             f"ablation_groups={len(blueprint.ablation_groups)}; "
@@ -235,11 +254,20 @@ Return ONLY valid JSON."""
             "planning",
             "planning_blueprint",
             planning_trace,
-            tags=[topic, blueprint.proposed_method.name, "planning", "blueprint"],
+            tags=[topic, method_name, "planning", "blueprint"],
             confidence=0.68,
         )
         logger.info("[%s] Blueprint generated: %s", self.stage.value, blueprint.title)
         return blueprint.model_dump(mode="json")
+
+    @staticmethod
+    def _method_name(proposed_method: Any) -> str:
+        """Return a stable method name from the schema's structured method dict."""
+        if isinstance(proposed_method, dict):
+            value = proposed_method.get("name") or proposed_method.get("method_name")
+            return str(value).strip() if value else "proposed_method"
+        value = getattr(proposed_method, "name", None)
+        return str(value).strip() if value else "proposed_method"
 
     @staticmethod
     def _build_evidence_block(ideation_data: dict) -> str:
@@ -251,10 +279,9 @@ Return ONLY valid JSON."""
             return (
                 "=== PUBLISHED QUANTITATIVE EVIDENCE ===\n"
                 "No quantitative evidence was extracted from the literature review.\n"
-                "For baseline expected_performance values, use well-known published results\n"
-                "from the original papers of each baseline method on the target dataset.\n"
-                "If you are confident about a baseline's published result on this dataset,\n"
-                "include it. Otherwise use null (NOT 'N/A').\n"
+                "Do not invent, recall, or estimate baseline expected_performance values.\n"
+                "Set missing baseline expected_performance values to null and keep\n"
+                "published baseline context separate from measured experiment results.\n"
                 "=== END EVIDENCE ==="
             )
 
@@ -281,6 +308,122 @@ Return ONLY valid JSON."""
 
         lines.append("=== END EVIDENCE ===")
         return "\n".join(lines)
+
+    @staticmethod
+    def _ensure_experiment_contract(data: dict) -> dict:
+        """Add a conservative execution contract if the planner omitted one."""
+        if not isinstance(data, dict):
+            return data
+
+        metrics = [
+            str(m.get("name") or "").strip()
+            for m in data.get("metrics", [])
+            if isinstance(m, dict) and str(m.get("name") or "").strip()
+        ]
+        if not metrics:
+            metrics = ["accuracy"]
+        datasets = [
+            str(d.get("name") or "").strip()
+            for d in data.get("datasets", [])
+            if isinstance(d, dict) and str(d.get("name") or "").strip()
+        ]
+        dataset = datasets[0] if datasets else "dataset"
+        proposed = data.get("proposed_method") if isinstance(data.get("proposed_method"), dict) else {}
+        proposed_name = str(proposed.get("name") or "proposed_method").strip()
+
+        matrix = data.get("experiment_matrix")
+        if not isinstance(matrix, list):
+            matrix = []
+        normalized: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw in matrix:
+            if not isinstance(raw, dict):
+                continue
+            run_id = str(raw.get("run_id") or "").strip()
+            if not run_id or run_id in seen:
+                continue
+            seen.add(run_id)
+            raw.setdefault("metrics", metrics)
+            raw.setdefault("dataset", dataset)
+            raw.setdefault("required", True)
+            raw.setdefault("expected_artifacts", ["results/metrics.json", "results/run_manifest.json"])
+            raw.setdefault("failure_policy", "debug_then_degrade")
+            raw.setdefault("config", {})
+            normalized.append(raw)
+
+        def add(run_id: str, role: str, method: str, output_group: str, config: dict[str, Any] | None = None) -> None:
+            if run_id in seen:
+                return
+            seen.add(run_id)
+            normalized.append({
+                "run_id": run_id,
+                "role": role,
+                "method": method,
+                "dataset": dataset,
+                "metrics": metrics,
+                "required": True,
+                "output_group": output_group,
+                "expected_artifacts": ["results/metrics.json", "results/run_manifest.json"],
+                "failure_policy": "debug_then_degrade",
+                "config": config or {},
+            })
+
+        roles = {str(r.get("role") or "").lower() for r in normalized if isinstance(r, dict)}
+        if "proposed" not in roles:
+            add("proposed_full", "proposed", proposed_name, "main_results", {"variant": "full"})
+
+        baseline_specs = [b for b in data.get("baselines", []) if isinstance(b, dict)]
+        for idx, baseline in enumerate(baseline_specs[:2], start=1):
+            name = str(baseline.get("name") or f"baseline_{idx}").strip()
+            add(f"baseline_{idx}_{PlanningAgent._slug(name)}", "baseline", name, "main_results", {"baseline_index": idx})
+        while sum(1 for r in normalized if str(r.get("role") or "").lower() == "baseline") < 2:
+            idx = sum(1 for r in normalized if str(r.get("role") or "").lower() == "baseline") + 1
+            add(f"baseline_{idx}_simple", "baseline", f"SimpleBaseline{idx}", "main_results", {"baseline_index": idx})
+
+        ablation_variants: list[tuple[str, dict[str, Any]]] = []
+        for group in data.get("ablation_groups", []):
+            if not isinstance(group, dict):
+                continue
+            for variant in group.get("variants", []) or []:
+                if isinstance(variant, dict):
+                    name = str(variant.get("name") or variant.get("variant_name") or variant.get("description") or "ablation").strip()
+                    ablation_variants.append((name, variant))
+        for idx, (name, variant) in enumerate(ablation_variants[:2], start=1):
+            add(f"ablation_{idx}_{PlanningAgent._slug(name)}", "ablation", name, "ablation_results", variant)
+        while sum(1 for r in normalized if str(r.get("role") or "").lower() == "ablation") < 2:
+            idx = sum(1 for r in normalized if str(r.get("role") or "").lower() == "ablation") + 1
+            add(f"ablation_{idx}_component", "ablation", f"AblationVariant{idx}", "ablation_results", {"ablation_index": idx})
+
+        if not any(str(r.get("role") or "").lower() == "optimization" for r in normalized):
+            add("optimization_history", "optimization", proposed_name, "optimization_history", {"track": "hyperparameter_search"})
+        if not any(str(r.get("role") or "").lower() == "complexity" for r in normalized):
+            add("complexity_profile", "complexity", proposed_name, "complexity_metrics", {"track": "runtime_parameter_profile"})
+
+        data["experiment_matrix"] = normalized
+        data.setdefault("required_artifacts", [
+            "configs/experiment_matrix.json",
+            "results/metrics.json",
+            "results/run_manifest.json",
+            "results/final_metrics.json",
+            "results/optimization_history.csv",
+            "results/pareto_front.json",
+        ])
+        criteria = data.get("minimum_success_criteria")
+        if not isinstance(criteria, dict):
+            criteria = {}
+        criteria.setdefault("min_measured_baselines", 2)
+        criteria.setdefault("min_ablation_runs", 2)
+        criteria.setdefault("require_proposed", True)
+        criteria.setdefault("require_complexity", True)
+        criteria.setdefault("require_optimization_history", True)
+        criteria.setdefault("required_metrics", metrics)
+        data["minimum_success_criteria"] = criteria
+        return data
+
+    @staticmethod
+    def _slug(value: str) -> str:
+        slug = "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_")
+        return slug[:40] or "run"
 
     @staticmethod
     def _coerce_blueprint_fields(data: dict) -> dict:
@@ -312,6 +455,21 @@ Return ONLY valid JSON."""
                 val = bl.get(key)
                 if val is not None and not isinstance(val, str):
                     bl[key] = str(val)
+            perf = bl.get("expected_performance")
+            if isinstance(perf, dict):
+                cleaned_perf = {}
+                for metric_name, metric_value in perf.items():
+                    if isinstance(metric_value, str) and metric_value.strip().lower() in {"n/a", "na", "not available", "unknown", "--", ""}:
+                        cleaned_perf[metric_name] = None
+                    else:
+                        cleaned_perf[metric_name] = metric_value
+                bl["expected_performance"] = cleaned_perf
+            provenance = bl.get("performance_provenance")
+            if isinstance(provenance, dict):
+                bl["performance_provenance"] = {
+                    str(k): str(v) for k, v in provenance.items()
+                    if v is not None and str(v).strip().lower() not in {"n/a", "na", "unknown", ""}
+                }
 
         # Proposed method string fields
         pm = data.get("proposed_method")

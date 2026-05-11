@@ -28,7 +28,7 @@ class _SaveFigureMixin:
         Args:
             code_generated: True for matplotlib/code-generated charts.
                 Only code-generated figures go through LLM-driven trim,
-                because API-generated figures (DALL-E, Gemini) are already
+                because API-generated figures (OpenAI-compatible/Gemini) are already
                 properly sized by the image model.
         """
         png_path = self.workspace.path / "figures" / f"{filename_stem}.png"

@@ -37,8 +37,13 @@ class _IdeationHypothesisMixin:
 
     async def _build_search_tools(self) -> ToolRegistry:
         registry = ToolRegistry()
-        search_arxiv = await _get_arxiv_search()
-        search_s2 = await _get_s2_search()
+        sources = {str(src).lower() for src in getattr(self.config, "literature_sources", ["openalex"])}
+        use_openalex = "openalex" in sources
+        use_arxiv = "arxiv" in sources
+        use_s2 = "semantic_scholar" in sources or "s2" in sources
+        use_web = "web" in sources or "web_search" in sources
+        search_arxiv = await _get_arxiv_search() if use_arxiv else None
+        search_s2 = await _get_s2_search() if use_s2 else None
 
         _arxiv_categories = [
             "cs.LG", "cs.AI", "cs.CV", "cs.CL",
@@ -54,35 +59,37 @@ class _IdeationHypothesisMixin:
         async def _handle_s2(query, max_results=10):
             return await search_s2(query, max_results=max_results)
 
-        registry.register(ToolDefinition(
-            name="search_arxiv",
-            description="Search arXiv for academic papers by query. Returns paper metadata.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query"},
-                    "max_results": {"type": "integer", "description": "Max papers", "default": 10},
+        if search_arxiv:
+            registry.register(ToolDefinition(
+                name="search_arxiv",
+                description="Search arXiv for academic papers by query. Returns paper metadata.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "max_results": {"type": "integer", "description": "Max papers", "default": 10},
+                    },
+                    "required": ["query"],
                 },
-                "required": ["query"],
-            },
-            handler=_handle_arxiv,
-        ))
+                handler=_handle_arxiv,
+            ))
 
-        registry.register(ToolDefinition(
-            name="search_semantic_scholar",
-            description="Search Semantic Scholar for papers with citation data.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query"},
-                    "max_results": {"type": "integer", "description": "Max papers", "default": 10},
+        if search_s2:
+            registry.register(ToolDefinition(
+                name="search_semantic_scholar",
+                description="Search Semantic Scholar for papers with citation data.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "max_results": {"type": "integer", "description": "Max papers", "default": 10},
+                    },
+                    "required": ["query"],
                 },
-                "required": ["query"],
-            },
-            handler=_handle_s2,
-        ))
+                handler=_handle_s2,
+            ))
 
-        search_oa = await _get_oa_search()
+        search_oa = await _get_oa_search() if use_openalex else None
         if search_oa:
             async def _handle_oa(query, max_results=10):
                 return await search_oa(query, max_results=max_results)
@@ -101,40 +108,42 @@ class _IdeationHypothesisMixin:
                 handler=_handle_oa,
             ))
 
-        try:
-            from mcp_server.tools.web_search import search_web
-            registry.register(ToolDefinition(
-                name="search_web",
-                description="Search the web for general information. Returns titles, URLs, snippets.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "Search query"},
-                        "max_results": {"type": "integer", "default": 5},
+        if use_web:
+            try:
+                from mcp_server.tools.web_search import search_web
+                registry.register(ToolDefinition(
+                    name="search_web",
+                    description="Search the web for general information. Returns titles, URLs, snippets.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string", "description": "Search query"},
+                            "max_results": {"type": "integer", "default": 5},
+                        },
+                        "required": ["query"],
                     },
-                    "required": ["query"],
-                },
-                handler=search_web,
-            ))
-        except ImportError:
-            pass
+                    handler=search_web,
+                ))
+            except ImportError:
+                pass
 
-        try:
-            from mcp_server.tools.semantic_scholar import get_paper_details
-            registry.register(ToolDefinition(
-                name="get_paper_details",
-                description="Get detailed info about a paper by Semantic Scholar or arXiv ID.",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "paper_id": {"type": "string", "description": "Paper ID"},
+        if use_s2:
+            try:
+                from mcp_server.tools.semantic_scholar import get_paper_details
+                registry.register(ToolDefinition(
+                    name="get_paper_details",
+                    description="Get detailed info about a paper by Semantic Scholar or arXiv ID.",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "paper_id": {"type": "string", "description": "Paper ID"},
+                        },
+                        "required": ["paper_id"],
                     },
-                    "required": ["paper_id"],
-                },
-                handler=get_paper_details,
-            ))
-        except ImportError:
-            pass
+                    handler=get_paper_details,
+                ))
+            except ImportError:
+                pass
 
         return registry
 

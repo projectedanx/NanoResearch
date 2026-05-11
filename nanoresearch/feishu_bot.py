@@ -236,22 +236,23 @@ def main() -> None:
     import ssl
     import certifi
 
-    # SSL 验证绕过 -- 用于代理环境下的飞书 WebSocket 连接
-    # 创建不验证证书的 SSL 上下文
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-
-    # 设置全局默认 SSL 上下文
     import websockets
-    _original_connect = websockets.connect
+    if os.environ.get("NANORESEARCH_ALLOW_INSECURE_SSL") == "1":
+        logger.warning(
+            "NANORESEARCH_ALLOW_INSECURE_SSL=1: disabling Feishu WebSocket SSL verification"
+        )
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
 
-    def _connect_with_ssl_bypass(*args, **kwargs):
-        if 'ssl' not in kwargs:
-            kwargs['ssl'] = ssl_context
-        return _original_connect(*args, **kwargs)
+        _original_connect = websockets.connect
 
-    websockets.connect = _connect_with_ssl_bypass
+        def _connect_with_insecure_ssl(*args, **kwargs):
+            if 'ssl' not in kwargs:
+                kwargs['ssl'] = ssl_context
+            return _original_connect(*args, **kwargs)
+
+        websockets.connect = _connect_with_insecure_ssl
 
     logging.basicConfig(
         level=logging.INFO,

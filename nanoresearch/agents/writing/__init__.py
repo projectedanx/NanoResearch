@@ -117,19 +117,16 @@ PAPER_SECTIONS = [
      "evaluation metrics (define each), baselines (cite source of each).\n"
      "(2) Implementation Details: hyperparameters (final values AND search ranges), "
      "hardware (GPU type, count), training time, random seeds, software versions.\n"
-     "(3) Main Results: you MUST include a LaTeX table (Table~\\ref{tab:main_results}) using "
-     "\\begin{table}[t!] with booktabs comparing all methods across all metrics.\n"
-     "  - Bold the best result in each column using \\textbf{}\n"
-     "  - Include standard deviations or confidence intervals (e.g., $\\pm$ 0.3)\n"
-     "  - Use \\citet{key} to reference baseline sources\n"
-     "  - Avoid '--' in tables; fill ALL cells with concrete numbers\n"
+     "(3) Main Results: include Table~\\ref{tab:main_results} only from the pre-built table in context.\n"
+     "  - Use \\begin{table}[htbp] with booktabs when writing a table yourself\n"
+     "  - Bold the best result in each column only when all compared values are real\n"
+     "  - Use \\citet{key} to reference baseline sources when a published baseline value is provided\n"
+     "  - NEVER fill missing baseline cells with guessed numbers; omit missing comparisons from result tables and avoid engineering-status prose\n"
      "(4) Analysis: explain WHY the method works --- what specific component leads to gains. "
      "Support with evidence, not speculation.\n"
-     "(5) Ablation Study: you MUST include a LaTeX ablation table (Table~\\ref{tab:ablation}) "
-     "using \\begin{table}[t!] with booktabs. Each row removes or replaces one component "
-     "(e.g., 'w/o module A', 'replace B with C'). Columns are evaluation metrics. "
-     "The full model should be the last row with best results in \\textbf{}. "
-     "Discuss what each ablation reveals about the component's contribution.\n"
+     "(5) Ablation Study: include an ablation table only when the context provides REAL ablation results. "
+     "If no ablation results are available, omit the ablation subsection/table and discuss evaluation scope only in paper-facing limitation language when scientifically necessary. "
+     "Never invent ablation values from component descriptions or expected trends.\n"
      "(6) Additional analysis as appropriate: efficiency comparison (FLOPs, inference time), "
      "qualitative examples, case studies, error analysis.\n"
      "Escape percent signs as \\%. Use -- for en-dashes in number ranges.\n\n"
@@ -143,13 +140,10 @@ PAPER_SECTIONS = [
      "  - Escape ALL percent signs as \\% in table cells and headers.\n\n"
      "CRITICAL — RESULTS IN TABLES:\n"
      "If the context contains REAL EXPERIMENT RESULTS (marked as such above), you MUST use\n"
-     "those exact numbers in Table~\\ref{tab:main_results} and Table~\\ref{tab:ablation}.\n"
+     "those exact numbers in Table~\\ref{tab:main_results}. Use Table~\\ref{tab:ablation} only if a real ablation table is provided.\n"
      "Do NOT round, adjust, or modify them.\n"
-     "If no results are available for the PROPOSED METHOD because the experiment FAILED,\n"
-     "use '--' in the proposed method's table cells. For BASELINE methods, fill in\n"
-     "published numbers from their original papers (cite the source).\n"
-     "Add a note: 'Results for our method are pending due to execution issues.'\n"
-     "Do NOT skip or omit the tables — always include Table 1 and Table 2.\n\n"
+     "If no results are available for the PROPOSED METHOD, do not create a main-results table for it and do not insert published numbers as substitutes.\n"
+     "Do NOT create an ablation table unless real ablation data is provided.\n\n"
      "Do NOT include \\begin{figure} blocks yourself --- figures are inserted automatically "
      "near their \\ref{fig:...} references.",
      []),
@@ -713,6 +707,7 @@ from .grounding import _GroundingMixin
 from .section_writer import _SectionWriterMixin
 from .citation_manager import _CitationManagerMixin
 from .latex_assembler import _LaTeXAssemblerMixin
+from .stage_planner import _WritingStagePlannerMixin
 from .writing_agent import _WritingAgentMixin
 
 __all__ = ["WritingAgent", "GroundingPacket", "ContributionClaim", "ContributionContract"]
@@ -720,6 +715,7 @@ __all__ = ["WritingAgent", "GroundingPacket", "ContributionClaim", "Contribution
 
 class WritingAgent(
     _WritingAgentMixin,
+    _WritingStagePlannerMixin,
     _ContextBuilderMixin,
     _GroundingMixin,
     _SectionWriterMixin,

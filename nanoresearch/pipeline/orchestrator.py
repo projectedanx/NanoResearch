@@ -108,6 +108,8 @@ class PipelineOrchestrator(BaseOrchestrator):
             inputs["paper_tex"] = paper_tex
             inputs["ideation_output"] = accumulated.get("ideation_output", {})
             inputs["experiment_blueprint"] = accumulated.get("experiment_blueprint", {})
+            writing_output = accumulated.get("writing_output", {})
+            inputs["paper_structure_plan"] = writing_output.get("paper_structure_plan", {})
 
         if last_error:
             inputs["_retry_error"] = last_error

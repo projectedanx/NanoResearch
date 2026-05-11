@@ -48,6 +48,26 @@ class _LocalRunnerQuickEvalMixin(_LocalRunnerQERecoveryMixin):
                 timeout=timeout,
             )
             last_result = result
+            if result["returncode"] != 0:
+                artifact_quick_eval = helper._collect_quick_eval_results(code_dir, result, attempt=cycle)
+                if self._metrics_satisfy_contract(artifact_quick_eval.get("metrics")):
+                    self.log(
+                        "Quick-eval command returned non-zero, but measured result artifacts "
+                        "satisfy the NanoResearch contract; accepting artifacts."
+                    )
+                    artifact_quick_eval["status"] = "success"
+                    artifact_quick_eval["accepted_despite_nonzero_exit"] = True
+                    self._append_remediation_entry(
+                        remediation_ledger,
+                        kind="artifact_contract_override",
+                        status="accepted",
+                        scope="local_quick_eval",
+                        round_number=round_number,
+                        cycle=cycle,
+                        details={"returncode": result.get("returncode")},
+                    )
+                    return artifact_quick_eval
+
             if result["returncode"] == 0:
                 quick_eval = helper._collect_quick_eval_results(code_dir, result, attempt=cycle)
                 augmented = self._augment_quick_eval_metrics_from_logs(code_dir, quick_eval, result)
@@ -110,7 +130,22 @@ class _LocalRunnerQuickEvalMixin(_LocalRunnerQERecoveryMixin):
                             files=[str(augmented.get("metrics_artifact_path", ""))],
                             details=details,
                         )
-                return augmented
+                if augmented.get("metrics"):
+                    return augmented
+                missing_msg = (
+                    "Quick-eval exited with code 0 but did not produce a valid "
+                    "results/metrics.json artifact. Treat this as an execution "
+                    "failure and repair the result-logging path; do not continue "
+                    "to analysis or paper writing without measured results."
+                )
+                result = {
+                    **result,
+                    "returncode": 1,
+                    "stderr": "\n".join(
+                        part for part in [str(result.get("stderr") or ""), missing_msg] if part
+                    ),
+                }
+                last_result = result
 
             if result["returncode"] == -1:
                 recovery = self._handle_quick_eval_timeout_recovery(

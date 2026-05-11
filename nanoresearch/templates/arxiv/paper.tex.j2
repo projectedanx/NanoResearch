@@ -13,7 +13,7 @@
 \usepackage{booktabs}
 \usepackage{xcolor}
 \usepackage{float}
-\usepackage[section]{placeins}
+\usepackage{placeins}
 \usepackage{multirow}
 
 \title{<< title >>}
@@ -41,17 +41,6 @@
 << subsection.content >>
 
 <% endfor %>
-<% endfor %>
-
-%% ---- Figures ----
-<% for figure in figures %>
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=<< figure.width >>\textwidth]{<< figure.filename >>}
-    \caption{<< figure.caption >>}
-    \label{fig:<< figure.figure_id >>}
-\end{figure}
-
 <% endfor %>
 
 %% ---- References ----

@@ -19,6 +19,25 @@ from ._constants import (
 logger = logging.getLogger(__name__)
 
 
+def _is_usable_performance_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value == value and value not in (float("inf"), float("-inf"))
+    if isinstance(value, str):
+        stripped = value.strip().lower()
+        return bool(stripped) and stripped not in {"none", "null", "n/a", "na", "?", "unknown"}
+    return False
+
+
+def _has_usable_performance_value(performance: Any) -> bool:
+    if not isinstance(performance, dict):
+        return False
+    return any(_is_usable_performance_value(value) for value in performance.values())
+
+
 class _EvidenceMixin:
     """Mixin — evidence block building and chart prompt generation."""
 
@@ -65,17 +84,10 @@ class _EvidenceMixin:
             f"1. ONLY use numbers provided in the evidence block above. Do NOT invent data.\n"
             f"2. Numbers marked [source: REAL EXPERIMENT] MUST be used EXACTLY as given.\n"
             f"   Do NOT round, adjust, or modify real experiment results.\n"
-            f"3. If results are marked [source: SYNTHETIC]:\n"
-            f"   - Use them the same way as real results for plotting\n"
-            f"   - Do NOT add 'Results Pending' labels — plot all data normally\n"
-            f"   - The synthetic data is internally consistent and suitable for visualization\n"
-            f"   - CRITICAL: Do NOT reference the word 'synthetic', 'failed', 'infrastructure',\n"
-            f"     'error', 'not available', or any experiment failure information ANYWHERE in the\n"
-            f"     generated chart — not in titles, annotations, legends, comments, or text boxes.\n"
-            f"   - Label synthetic or proxy data explicitly. A reader should\n"
-            f"     be able to tell the difference. Generate a clean, professional chart.\n"
-            f"   - FORBIDDEN: ax.text(..., 'Not Available', ...), ax.text(..., 'Failed', ...),\n"
-            f"     any annotation containing module names, error messages, or failure reasons.\n"
+            f"3. If numbers are marked [source: SYNTHETIC] or [source: PROJECTED],\n"
+            f"   do NOT plot them as real experiment results. Either skip the chart or\n"
+            f"   label those values explicitly as synthetic/projected in the legend/caption text.\n"
+            f"   Never disguise synthetic, proxy, failed-run, or unavailable data as real.\n"
             f"4. For ablation studies: ONLY use ablation numbers from the evidence block.\n"
             f"   If no ablation data is available, skip the ablation chart entirely.\n"
             f"5. Only show error bars/std when the evidence explicitly provides std values.\n"
@@ -98,132 +110,6 @@ class _EvidenceMixin:
             f"- [ ] plt.close(fig) called after saving\n\n"
             f"Save to: output_path = \"{output_path}\"\n"
         )
-
-    # -----------------------------------------------------------------------
-    # Synthetic data generator (fallback when experiments are skipped)
-    # -----------------------------------------------------------------------
-
-    @staticmethod
-    def _generate_synthetic_results(blueprint: dict) -> dict:
-        """Generate synthetic experiment results from blueprint.
-
-        When quick-eval fails or is skipped, this produces data structurally
-        identical to ``metrics.json`` so that figure_gen has something to plot.
-        """
-        import random
-        random.seed(42)
-
-        if not isinstance(blueprint, dict):
-            blueprint = {}
-        method_info = blueprint.get("proposed_method") or {}
-        method_name = method_info.get("name", "Proposed Method")
-        baselines = blueprint.get("baselines") or []
-        metrics_spec = blueprint.get("metrics") or []
-        if not metrics_spec:
-            metrics_spec = [{"name": "Score", "higher_is_better": True, "primary": True}]
-        datasets = blueprint.get("datasets", [])
-        dataset_name = (
-            datasets[0].get("name", "Dataset") if datasets else "Dataset"
-        )
-
-        main_results: list[dict] = []
-
-        # 1. Baseline rows — pull from expected_performance or make up values
-        for b in baselines:
-            perf = b.get("expected_performance", {})
-            metrics_list: list[dict] = []
-            for m in metrics_spec:
-                mname = m.get("name", "metric")
-                raw_val = perf.get(mname)
-                val = None
-                if raw_val is not None:
-                    try:
-                        val = float(raw_val)
-                    except (ValueError, TypeError):
-                        val = None
-                if val is None:
-                    # Keep all synthetic values in a comparable 0-1 range
-                    # so grouped bar charts have consistent Y-axis scales.
-                    if m.get("higher_is_better", True):
-                        val = random.uniform(0.4, 0.7)
-                    else:
-                        val = random.uniform(0.15, 0.45)
-                std = round(abs(val) * random.uniform(0.02, 0.06), 3)
-                metrics_list.append(
-                    {"metric_name": mname, "value": round(val, 3), "std": std}
-                )
-            main_results.append({
-                "method_name": b.get("name", "Baseline"),
-                "dataset": dataset_name,
-                "is_proposed": False,
-                "metrics": metrics_list,
-            })
-
-        # 2. Proposed method — better than the best baseline by 8-15 %
-        proposed_metrics: list[dict] = []
-        for m in metrics_spec:
-            mname = m.get("name", "metric")
-            higher = m.get("higher_is_better", True)
-            baseline_vals = [
-                mm["value"]
-                for r in main_results
-                for mm in r["metrics"]
-                if mm["metric_name"] == mname
-            ]
-            if baseline_vals:
-                best = max(baseline_vals) if higher else min(baseline_vals)
-                # For lower_is_better (e.g. loss=4.0), we want proposed < best
-                # improvement is always a positive delta applied in the right direction
-                improvement = abs(best) * random.uniform(0.08, 0.15)
-                if higher:
-                    val = best + improvement      # e.g. acc 0.7 → 0.78
-                else:
-                    val = best - improvement       # e.g. loss 4.0 → 3.5
-                    val = max(val, 0.01)           # clamp to positive
-            else:
-                val = (
-                    random.uniform(0.65, 0.85)
-                    if higher
-                    else random.uniform(3.0, 5.0)
-                )
-            std = round(abs(val) * random.uniform(0.01, 0.04), 3)
-            proposed_metrics.append(
-                {"metric_name": mname, "value": round(val, 3), "std": std}
-            )
-
-        main_results.insert(0, {
-            "method_name": method_name,
-            "dataset": dataset_name,
-            "is_proposed": True,
-            "metrics": proposed_metrics,
-        })
-
-        # 3. Ablation — drop each key component one at a time
-        ablation_results: list[dict] = []
-        components = method_info.get("key_components", [])
-        for comp in components[:3]:
-            variant_metrics: list[dict] = []
-            for pm in proposed_metrics:
-                drop = abs(pm["value"]) * random.uniform(0.03, 0.08)
-                higher = any(
-                    m.get("higher_is_better", True)
-                    for m in metrics_spec
-                    if m.get("name") == pm["metric_name"]
-                )
-                val = pm["value"] - drop if higher else pm["value"] + drop
-                variant_metrics.append(
-                    {"metric_name": pm["metric_name"], "value": round(val, 3)}
-                )
-            ablation_results.append({
-                "variant_name": f"w/o {comp}",
-                "metrics": variant_metrics,
-            })
-
-        return {
-            "main_results": main_results,
-            "ablation_results": ablation_results,
-            "training_log": [],  # no synthetic training log — only real logs
-        }
 
     # -----------------------------------------------------------------------
     # Evidence block builder
@@ -249,10 +135,8 @@ class _EvidenceMixin:
             and experiment_results.get("main_results")
         )
 
-        # ── Degenerate-run guard ─────────────────────────────────────
-        # If the experiment ran but ALL metrics are zero, treat it as
-        # a failed run and fall back to synthetic data.  This prevents
-        # figures labelled "TRAINING FAILED / all zeros".
+        # Degenerate-run guard: if the experiment ran but all metrics are zero,
+        # treat it as unavailable rather than plotting misleading data.
         if has_real_results and experiment_results:
             _is_degenerate = experiment_results.get("_degenerate_run", False)
             if not _is_degenerate:
@@ -285,7 +169,7 @@ class _EvidenceMixin:
             if _is_degenerate:
                 logger.warning(
                     "Degenerate experiment results detected (all metrics "
-                    "zero) — falling back to synthetic data for figures."
+                    "zero) — treating result charts as unavailable."
                 )
                 has_real_results = False
 
@@ -351,7 +235,8 @@ class _EvidenceMixin:
             _lit_metrics = _evidence.get("extracted_metrics", [])
             _baselines = blueprint.get("baselines", [])
             _has_lit = bool(_lit_metrics) or any(
-                b.get("expected_performance") for b in _baselines
+                _has_usable_performance_value(b.get("expected_performance"))
+                for b in _baselines
             )
 
             if _has_lit:
@@ -374,8 +259,8 @@ class _EvidenceMixin:
                 )
                 lines.append("=== END NO EXPERIMENT DATA ===")
             else:
-                # BUG-3 fix: when experiments failed AND no literature data,
-                # do NOT generate synthetic data charts — this contradicts
+                # When experiments failed AND no literature data, do not create
+                # scaffold data charts — this contradicts
                 # Grounding's "do NOT fabricate" instruction.  Instead,
                 # provide an explicit context block that tells the chart LLM
                 # there is no data to plot.
@@ -414,8 +299,12 @@ class _EvidenceMixin:
         for b in baselines:
             perf = b.get("expected_performance", {})
             prov = b.get("performance_provenance", {})
+            if not isinstance(perf, dict):
+                continue
             for metric_name, value in perf.items():
-                source = prov.get(metric_name, "blueprint")
+                if not _is_usable_performance_value(value):
+                    continue
+                source = prov.get(metric_name, "blueprint") if isinstance(prov, dict) else "blueprint"
                 lines.append(
                     f"- {b.get('name', '?')}: {metric_name} = {value} [source: {source}]"
                 )
@@ -432,5 +321,5 @@ class _EvidenceMixin:
         return result
 
     # -----------------------------------------------------------------------
-    # Fig AI: architecture diagram via Gemini
+    # Fig AI: architecture diagram via configured image backend
     # -----------------------------------------------------------------------

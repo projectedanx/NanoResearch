@@ -44,7 +44,7 @@ class _RevisionMixin:
         )
         # BUG-9 fix: track consecutive stalls to avoid infinite revision loops
         _stall_count = 0
-        _MAX_STALL_ROUNDS = 2
+        _MAX_STALL_ROUNDS = 1
         # BUG-30 fix: track consecutive backpressure reverts to prevent
         # infinite loops when the original paper_tex has structural errors
         # (e.g. \begin{equation}...\end{parameter}).
@@ -350,6 +350,23 @@ class _RevisionMixin:
 
         # Section-specific revision guidance
         section_guidance = self._get_section_revision_guidance(section_review.section)
+        plan_block = ""
+        paper_plan = getattr(self, "_paper_structure_plan", {}) or {}
+        if paper_plan:
+            try:
+                from nanoresearch.agents.writing.stage_planner import _WritingStagePlannerMixin
+
+                section_plan = _WritingStagePlannerMixin._writing_plan_section_block(
+                    paper_plan, section_review.section
+                )
+                if section_plan:
+                    plan_block = (
+                        "\n\n=== PAPER STRUCTURE PLAN TO PRESERVE ===\n"
+                        + section_plan[:5000]
+                        + "\n=== END PAPER STRUCTURE PLAN TO PRESERVE ==="
+                    )
+            except Exception:
+                plan_block = ""
 
         # Extract bibliography from paper_tex so the LLM knows available citations
         bib_keys = ""
@@ -371,7 +388,7 @@ Suggestions (optional improvements):
 {suggestions_json}{consistency_block}{strengths_block}
 
 === REVISION GUIDELINES ===
-{section_guidance}
+{section_guidance}{plan_block}
 {bib_keys}
 
 === CRITICAL RULES ===
@@ -382,6 +399,9 @@ Suggestions (optional improvements):
 5. Keep the same overall structure and length (+-20%)
 6. Use ONLY citation keys from the paper's bibliography
 7. GROUNDING: Do NOT change any concrete numbers (accuracy, F1, loss, etc.) that appear in tables or experimental results. These come from real experiments. Do NOT "improve" them, round them, or replace them with different values. Do NOT add new result numbers that were not in the original text.
+8. If reviewer feedback asks for experiments that are not present in the artifact-grounded tables, do NOT write as if they were run. Convert those requests into honest limitations or future work, while preserving all measured main-result and ablation tables exactly.
+9. Do NOT deny or downgrade measured artifacts that are already present in the paper. If a table contains measured ablation rows, discuss them as measured ablations; only mark missing unmeasured variants as limitations.
+10. Do NOT include \\bibliographystyle, \\bibliography, \\end{{document}}, or any new \\section command in a revised section body.
 
 {self._build_revision_grounding_block()}
 
