@@ -16,6 +16,120 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 _WORD_RE = re.compile(r"[a-z][a-z0-9_-]{2,}")
+_GENERIC_RESEARCH_TOKENS = {
+    "about",
+    "above",
+    "across",
+    "after",
+    "against",
+    "also",
+    "and",
+    "any",
+    "are",
+    "before",
+    "being",
+    "between",
+    "both",
+    "but",
+    "cannot",
+    "could",
+    "does",
+    "during",
+    "each",
+    "from",
+    "full",
+    "has",
+    "have",
+    "how",
+    "into",
+    "its",
+    "keep",
+    "may",
+    "more",
+    "most",
+    "not",
+    "over",
+    "per",
+    "should",
+    "such",
+    "than",
+    "that",
+    "the",
+    "their",
+    "then",
+    "these",
+    "this",
+    "through",
+    "under",
+    "using",
+    "when",
+    "where",
+    "which",
+    "while",
+    "with",
+    "without",
+    "would",
+    "ablation",
+    "ablations",
+    "academic",
+    "analysis",
+    "baseline",
+    "baselines",
+    "benchmark",
+    "benchmarks",
+    "budget",
+    "claim",
+    "claims",
+    "classification",
+    "compare",
+    "complexity",
+    "compute",
+    "count",
+    "counts",
+    "data",
+    "dataset",
+    "datasets",
+    "design",
+    "document",
+    "documented",
+    "evaluate",
+    "evaluation",
+    "experiment",
+    "experiments",
+    "evidence",
+    "existing",
+    "feasible",
+    "limited",
+    "method",
+    "metrics",
+    "model",
+    "models",
+    "paper",
+    "needed",
+    "parameter",
+    "parameters",
+    "pipeline",
+    "prediction",
+    "practical",
+    "profile",
+    "reproducible",
+    "research",
+    "report",
+    "result",
+    "results",
+    "run",
+    "runs",
+    "scope",
+    "science",
+    "scientific",
+    "small",
+    "split",
+    "stage",
+    "state",
+    "task",
+    "training",
+    "transparent",
+}
 
 
 class MemoryType(str, Enum):
@@ -256,6 +370,48 @@ class MemoryStore:
         return set(_WORD_RE.findall((text or "").lower()))
 
     @staticmethod
+    def _compact_text(text: str, *, limit: int = 700) -> str:
+        compacted = " ".join((text or "").split())
+        if len(compacted) <= limit:
+            return compacted
+        return compacted[: max(0, limit - 15)].rstrip() + " ... [trimmed]"
+
+    @staticmethod
+    def _overlap_stats(query_tokens: set[str], candidate_tokens: set[str]) -> tuple[int, float]:
+        if not query_tokens or not candidate_tokens:
+            return 0, 0.0
+        overlap = len(query_tokens & candidate_tokens)
+        return overlap, overlap / max(1, min(len(query_tokens), len(candidate_tokens)))
+
+    @staticmethod
+    def _anchor_tokens(tokens: set[str]) -> set[str]:
+        return {token for token in tokens if token not in _GENERIC_RESEARCH_TOKENS}
+
+    @staticmethod
+    def _is_strong_cross_project_match(
+        *,
+        task_type: str,
+        memory_type: MemoryType,
+        overlap: int,
+        overlap_ratio: float,
+        tag_overlap: int,
+        anchor_overlap: int,
+    ) -> bool:
+        if tag_overlap >= 2 and anchor_overlap >= 1:
+            return True
+        if memory_type == MemoryType.USER_PROFILE:
+            return overlap >= 2 or tag_overlap >= 1
+        strict_tasks = {"ideation", "literature", "planning"}
+        if memory_type == MemoryType.PROJECT_CONTEXT:
+            min_anchor_overlap = 2 if task_type in strict_tasks else 1
+            min_overlap = 6 if task_type in strict_tasks else 4
+            min_ratio = 0.08 if task_type in strict_tasks else 0.05
+            return anchor_overlap >= min_anchor_overlap and overlap >= min_overlap and overlap_ratio >= min_ratio
+        min_overlap = 4 if task_type in strict_tasks else 3
+        min_ratio = 0.06 if task_type in strict_tasks else 0.04
+        return anchor_overlap >= 1 and overlap >= min_overlap and overlap_ratio >= min_ratio
+
+    @staticmethod
     def _make_memory_id(memory_type: MemoryType, scope: MemoryScope, content: str) -> str:
         digest = hashlib.sha1(f"{memory_type.value}|{scope.value}|{content}".encode("utf-8")).hexdigest()
         return f"mem-{digest[:12]}"
@@ -471,15 +627,31 @@ class MemoryStore:
         weights = _TASK_TYPE_WEIGHTS.get(task_type, _TASK_TYPE_WEIGHTS.get("planning", {}))
         query_tags = set(self._normalize_tags(tags))
         query_tokens = self._tokenize(" ".join([topic, text, " ".join(query_tags)]))
+        query_anchor_tokens = self._anchor_tokens(query_tokens)
         scored: list[tuple[float, MemoryRecord]] = []
         for record in self._load_records():
-            if project_key and record.project_key and record.project_key != project_key:
-                if record.scope == MemoryScope.PROJECT:
-                    continue
             memory_weight = weights.get(record.memory_type, 1.0)
-            token_overlap = len(self._tokenize(record.content) & query_tokens)
+            record_tokens = self._tokenize(record.content)
+            record_anchor_tokens = self._anchor_tokens(record_tokens)
+            token_overlap, overlap_ratio = self._overlap_stats(query_tokens, record_tokens)
+            anchor_overlap = len(query_anchor_tokens & record_anchor_tokens)
             tag_overlap = len(set(record.tags) & query_tags)
-            project_bonus = 0.45 if project_key and record.project_key == project_key else 0.0
+            same_project = bool(project_key and record.project_key == project_key)
+            cross_project = bool(project_key and record.project_key and record.project_key != project_key)
+            if project_key and record.project_key and not same_project:
+                continue
+            if record.memory_type == MemoryType.PROJECT_CONTEXT and not same_project:
+                continue
+            if cross_project and not self._is_strong_cross_project_match(
+                task_type=task_type,
+                memory_type=record.memory_type,
+                overlap=token_overlap,
+                overlap_ratio=overlap_ratio,
+                tag_overlap=tag_overlap,
+                anchor_overlap=anchor_overlap,
+            ):
+                continue
+            project_bonus = 0.45 if same_project else 0.0
             score = (
                 memory_weight * (1.2 + record.importance + record.recency_weight)
                 + 0.55 * token_overlap
@@ -586,13 +758,28 @@ class MemoryStore:
         if not records:
             return ""
         lines = []
+        total_chars = 0
+        per_record_limit = 500 if task_type in {"ideation", "literature", "planning"} else 800
+        total_limit = 1800 if task_type in {"ideation", "literature", "planning"} else 2600
         for record in records:
             source = f" [{record.source}]" if record.source else ""
-            lines.append(f"- ({record.memory_type.value}){source} {record.content}")
+            content = self._compact_text(record.content, limit=per_record_limit)
+            line = f"- ({record.memory_type.value}){source} {content}"
+            if total_chars + len(line) > total_limit:
+                remaining = total_limit - total_chars
+                if remaining < 160:
+                    break
+                line = self._compact_text(line, limit=remaining)
+            lines.append(line)
+            total_chars += len(line) + 1
+            if total_chars >= total_limit:
+                break
+        if not lines:
+            return ""
         return (
             "\n\n=== LONG-TERM RESEARCH MEMORY ===\n"
-            "Use these durable preferences, prior decisions, and project facts when making choices. "
-            "Prefer recent high-importance memories, but do not hard-delete older context.\n"
+            "Use only the compact, topic-relevant durable preferences, prior decisions, and project facts below. "
+            "Ignore absent older context rather than inferring it.\n"
             + "\n".join(lines)
             + "\n=== END LONG-TERM RESEARCH MEMORY ===\n"
         )
