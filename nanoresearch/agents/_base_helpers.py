@@ -27,20 +27,46 @@ _LATEX_CMD_PREFIXES = frozenset([
 
 # ---- Tool result management (OpenClaw-inspired patterns) ----
 
-_MAX_TOOL_RESULT_CHARS = 6000
-_HEAD_CHARS = 2000
-_TAIL_CHARS = 1500
+_MAX_TOOL_RESULT_CHARS = 2200
+_HEAD_CHARS = 1200
+_TAIL_CHARS = 700
 # Approximate token limit for proactive compaction (chars ~ tokens * 4)
 _CONTEXT_COMPACT_THRESHOLD_CHARS = 100_000
 _PROTECTED_TAIL_TURNS = 6  # keep last N messages intact during compaction
 
 
-def _truncate_tool_result(text: str) -> str:
-    """Head/tail truncation for large tool results.
+def _compact_paper_result(text: str) -> str | None:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, list) or not payload:
+        return None
+    compacted: list[dict[str, Any]] = []
+    for item in payload[:5]:
+        if not isinstance(item, dict):
+            return None
+        abstract = " ".join(str(item.get("abstract", "")).split())
+        compacted.append({
+            "title": item.get("title", ""),
+            "year": item.get("year", ""),
+            "venue": item.get("venue", ""),
+            "citation_count": item.get("citation_count", 0),
+            "doi": item.get("doi", ""),
+            "url": item.get("url", ""),
+            "abstract": abstract[:500] + (" ..." if len(abstract) > 500 else ""),
+        })
+    suffix = ""
+    if len(payload) > len(compacted):
+        suffix = f"\n[omitted {len(payload) - len(compacted)} additional paper results]"
+    return json.dumps(compacted, ensure_ascii=False, default=str) + suffix
 
-    Keeps the first 2000 and last 1500 chars, truncating the middle.
-    Prevents large search results from flooding the context window.
-    """
+
+def _truncate_tool_result(text: str) -> str:
+    """Bound tool output before it re-enters the LLM context."""
+    compacted = _compact_paper_result(text)
+    if compacted is not None:
+        text = compacted
     if len(text) <= _MAX_TOOL_RESULT_CHARS:
         return text
     mid_len = len(text) - _HEAD_CHARS - _TAIL_CHARS
