@@ -102,36 +102,61 @@ class _WritingAgentMixin:
         # section-specific builders index structured fields from it.
         core_ctx = self._build_core_context(ideation, blueprint, cite_keys)
         if adaptive_context:
+            adaptive_context = self._compact_context_text(str(adaptive_context), 900)
             core_ctx["adaptive_context"] = adaptive_context
 
         # Title & abstract need a broad context
         title_abstract_ctx = self._ctx_introduction(core_ctx, grounding=grounding)
         if adaptive_context:
-            title_abstract_ctx = f"{title_abstract_ctx}\n\n{adaptive_context}"
+            title_abstract_ctx = f"{title_abstract_ctx}\n\n{self._compact_context_text(adaptive_context, 500)}"
+
+        deterministic_writing = bool(getattr(self.config, "deterministic_writing_fallback", False))
 
         # Step 1: Generate title
-        title = await self._generate_title(title_abstract_ctx)
+        if deterministic_writing:
+            method_name = (blueprint.get("proposed_method") or {}).get("name", "")
+            title_core = dict(core_ctx)
+            if method_name:
+                title_core["method_name"] = method_name
+            title = self._fallback_title(title_core)
+        else:
+            title = await self._generate_title(title_abstract_ctx)
         self.log(f"Title: {title}")
 
         # Step 2: Generate abstract
-        abstract = await self._generate_abstract(title_abstract_ctx, grounding)
+        if deterministic_writing:
+            abstract = self._fallback_abstract(core_ctx, grounding)
+        else:
+            abstract = await self._generate_abstract(title_abstract_ctx, grounding)
         self.log("Abstract generated")
 
         # Step 3: Build figures & table data from blueprint
         figure_blocks = self._build_figure_blocks(blueprint, figure_output)
 
         # Step 3b: Expand router/adaptive guidance into a concrete writing plan.
-        paper_structure_plan = await self._generate_writing_stage_plan(
-            ideation=ideation,
-            blueprint=blueprint,
-            grounding=grounding,
-            figure_output=figure_output,
-            core_ctx=core_ctx,
-            adaptive_context=adaptive_context or "",
-            section_list=section_list,
-            template_format=template_format,
-            is_survey=is_survey,
-        )
+        if deterministic_writing:
+            paper_structure_plan = self._fallback_writing_stage_plan(
+                ideation=ideation,
+                blueprint=blueprint,
+                grounding=grounding,
+                figure_output=figure_output,
+                section_list=section_list,
+                template_format=template_format,
+                is_survey=is_survey,
+            )
+            self.workspace.write_json("plans/paper_structure_plan.json", paper_structure_plan)
+        else:
+            paper_structure_plan = await self._generate_writing_stage_plan(
+                ideation=ideation,
+                blueprint=blueprint,
+                grounding=grounding,
+                figure_output=figure_output,
+                core_ctx=core_ctx,
+                adaptive_context=adaptive_context or "",
+                section_list=section_list,
+                template_format=template_format,
+                is_survey=is_survey,
+            )
         self.log("Paper structure plan generated")
 
         # Step 4: Generate each section independently, embed figures inline
@@ -172,8 +197,9 @@ class _WritingAgentMixin:
                 experiment_summary=ctx_experiment_summary,
                 prior_sections=_prior_content,
             )
-            if adaptive_context:
-                section_ctx = f"{section_ctx}\n\n{adaptive_context}"
+            # Keep section prompts close to the original compact writing path.
+            # Adaptive memory/skills are already reflected in the local plan and
+            # should not be repeated in every long-form generation request.
             plan_block = self._writing_plan_section_block(paper_structure_plan, heading)
             if plan_block:
                 section_ctx = f"{section_ctx}\n\n{plan_block}"
@@ -263,9 +289,19 @@ class _WritingAgentMixin:
                 and bool(grounding.main_table_latex)
             )
             if deterministic_experiments:
-                content, composer_placed = self._compose_experiments_section(
+                composed_content, composer_placed = self._compose_experiments_section(
                     grounding, figure_blocks, blueprint, include_heading=False,
                 )
+                if deterministic_writing:
+                    content = composed_content
+                else:
+                    expansion_context = (
+                        f"{context_with_figs}\n\n"
+                        "=== ARTIFACT-GROUNDED EXPERIMENT SKELETON ===\n"
+                        f"{composed_content}\n"
+                        "=== END SKELETON ==="
+                    )
+                    content = await self._expand_composed_experiments(expansion_context, composed_content)
                 placed_figures.update(composer_placed)
                 self.log(
                     f"  Experiments composed from verified artifacts "

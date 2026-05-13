@@ -228,6 +228,51 @@ class _LaTeXBibFiguresMixin:
         return headings[-1].group(1).strip() if headings else ""
 
     @staticmethod
+    def _is_method_schematic_label(fig_key: str, figure_block: str = "") -> bool:
+        hint = f"{fig_key} {figure_block}".lower()
+        return bool(re.search(r"method_schematic|fig_method_schematic|method|schematic|framework|architecture", hint))
+
+    @staticmethod
+    def _insert_method_schematic_in_method(
+        content: str, fig_key: str, figure_block: str,
+    ) -> tuple[str, bool]:
+        """Place method schematic after the Method text introduces the pipeline."""
+        method_m = re.search(r'\\section\*?\{Method\}(?:\\label\{[^}]+\})?', content)
+        if not method_m:
+            return content, False
+        next_m = re.search(r'\\section\*?\{', content[method_m.end():])
+        method_end = method_m.end() + next_m.start() if next_m else len(content)
+        ref_re = re.compile(rf'\\(?:ref|autoref|cref)\{{fig:{re.escape(fig_key)}\}}', re.IGNORECASE)
+        ref_m = ref_re.search(content[method_m.end():method_end])
+        if ref_m:
+            search_start = method_m.end() + ref_m.end()
+            boundary = re.search(
+                r'\n\s*\n|\\(?:sub){0,2}section\{|\\paragraph\{|\\begin\{table\}|\\begin\{figure\}',
+                content[search_start:method_end],
+            )
+            insert_pos = search_start + boundary.start() if boundary else method_end
+        else:
+            first_para_start = method_m.end()
+            first_para_end = re.search(
+                r'\n\s*\n|\\subsection\{|\\paragraph\{|\\begin\{figure\}',
+                content[first_para_start:method_end],
+            )
+            insert_pos = first_para_start + first_para_end.start() if first_para_end else method_end
+            bridge = (
+                "\n\nFigure~\\ref{fig:method_schematic} summarizes the execution flow after "
+                "the data boundary, mask representation, and training-only evaluator have been introduced."
+            )
+            content = content[:insert_pos] + bridge + content[insert_pos:]
+            insert_pos += len(bridge)
+        figure_block = re.sub(
+            r'\\begin\{figure\}(?:\[[^]]*\])?',
+            r'\\begin{figure}[htbp]',
+            figure_block,
+            count=1,
+        )
+        return content[:insert_pos] + "\n\n" + figure_block + "\n" + content[insert_pos:], True
+
+    @staticmethod
     def _insert_figure_near_ref(
         content: str,
         fig_key: str,
@@ -407,6 +452,13 @@ class _LaTeXBibFiguresMixin:
             else:
                 fig_label = ""
 
+        if fig_label and cls._is_method_schematic_label(fig_label, figure_block):
+            new_content, placed = cls._insert_method_schematic_in_method(
+                content, fig_label, figure_block,
+            )
+            if placed:
+                return new_content
+
         # Strategy 1: place near first \ref
         if fig_label:
             new_content, placed = cls._insert_figure_near_ref(
@@ -535,8 +587,9 @@ class _LaTeXBibFiguresMixin:
             label_suffix = parts[1] if len(parts) > 1 else fig_key
             include_name = pdf_name if fig_data.get("pdf_path") else png_name
 
+            placement = "htbp" if self._is_method_schematic_label(fig_key) else "ht"
             block = (
-                "\\begin{figure}[ht]\n"
+                f"\\begin{{figure}}[{placement}]\n"
                 "\\centering\n"
                 f"\\includegraphics[width=0.66\\linewidth, "
                 f"height=0.24\\textheight, keepaspectratio]"

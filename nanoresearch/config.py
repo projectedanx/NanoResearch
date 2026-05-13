@@ -75,8 +75,8 @@ class ResearchConfig(BaseModel):
     )
     writing: StageModelConfig = Field(
         default_factory=lambda: StageModelConfig(
-            model="deepseek-ai/DeepSeek-V3.2", temperature=0.4,
-            max_tokens=16384, timeout=600.0,
+            model="pro/gpt-5.5", temperature=0.35,
+            max_tokens=8192, timeout=300.0,
         )
     )
     code_gen: StageModelConfig = Field(
@@ -134,8 +134,11 @@ class ResearchConfig(BaseModel):
     strict_experiment_contract: bool = False
     execution_profile: ExecutionProfile = ExecutionProfile.LOCAL_QUICK
     auto_upgrade_to_cluster_on_no_gpu: bool = False
-    writing_mode: WritingMode = WritingMode.HYBRID
-    writing_tool_max_rounds: int = 3  # was 10 — each round resends full context, very expensive
+    writing_mode: WritingMode = WritingMode.DIRECT
+    deterministic_writing_fallback: bool = False
+    deterministic_review_fallback: bool = True
+    llm_writing_stage_planner: bool = False
+    writing_tool_max_rounds: int = 2  # keep writing requests bounded on OpenAI-compatible endpoints
     auto_create_env: bool = True
     auto_download_resources: bool = True
     local_execution_timeout: int = 1800

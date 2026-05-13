@@ -478,6 +478,13 @@ class _LaTeXAssemblerMixin(
             text,
         )
 
+        # -- 2c.2. Repair common set-notation omissions from LLM math.
+        # Without escaped braces, LaTeX treats {0,1} as grouping and the PDF
+        # renders as "0,1^d" instead of the intended binary set.
+        text = re.sub(r'\\in\s*\{\s*0\s*,\s*1\s*\}', r'\\in\\{0,1\\}', text)
+        text = re.sub(r'=\s*\{\s*j\s*:\s*m_j\s*=\s*1\s*\}', r'=\\{j: m_j=1\\}', text)
+        text = re.sub(r'=\s*\{\s*j\s*:\s*([^{}]+?)\s*\}', r'=\\{j: \1\\}', text)
+
         # -- 2c.5. Compact common long binary-loss equations.
         # LLMs often emit full probability calls inside cross-entropy terms,
         # which overflows narrow conference columns. Keep the math equivalent
@@ -538,6 +545,9 @@ class _LaTeXAssemblerMixin(
             r'\\begin{table*}[tbp]',
             text,
         )
+
+
+        text = re.sub(r'\n(?:\\FloatBarrier\s*)?\\section\{Method\}', '\n\\FloatBarrier\n\\section{Method}', text)
 
         # -- 4. Auto-fix table overflow --
         text = cls._fix_table_overflow(text)
@@ -683,6 +693,11 @@ class _LaTeXAssemblerMixin(
             return '$' + span + '$'
 
         text = re.sub(r'\$([^$\n]{1,500})\$', _repair_inline_math_escapes, text)
+        text = text.replace(r'\widehat{B}(\mathbf{m})', r'\widehat{B}(\mathbf{m})')
+        text = text.replace(r'\textbackslash{}|$\mathbf{m}\textbackslash{}|_{0}$', r'\|\mathbf{m}\|_{0}')
+        text = re.sub(r'\\in\s*\{\s*0\s*,\s*1\s*\}', r'\\in\\{0,1\\}', text)
+        text = re.sub(r'=\s*\{\s*0\s*,\s*1\s*\}', r'=\\{0,1\\}', text)
+        text = re.sub(r'=\s*\{\s*j\s*:\s*m_j\s*=\s*1\s*\}', r'=\\{j: m_j=1\\}', text)
 
         # -- 14. Normalize figure refs and remove unresolved figure references
         # if a figure was dropped. Some LLM-written references omit the fig:

@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 # ── Limits ────────────────────────────────────────────────────────────────
 MAX_SKILLS = 5  # max matched skills per query
-MAX_CHARS_PER_SKILL = 6000  # truncate each SKILL.md extract
-MAX_TOTAL_CHARS = 24000  # hard cap on total injected context
+MAX_CHARS_PER_SKILL = 1200  # truncate each SKILL.md extract
+MAX_TOTAL_CHARS = 3600  # hard cap on total injected context
 MAX_ASSET_LINES = 80  # lines of each assets/*.py template to include
 MIN_MATCH_SCORE = 2  # minimum keyword overlap to consider a match
 

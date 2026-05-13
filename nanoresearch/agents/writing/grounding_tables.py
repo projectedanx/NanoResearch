@@ -928,6 +928,7 @@ class _GroundingTablesMixin:
             ])
             lines.append(main_result_discussion())
             lines.append("The result should therefore be read as a controlled trade-off rather than a leaderboard claim. Full-feature logistic regression remains the natural accuracy reference, random forest provides a nonlinear baseline, and the proposed sparse model tests whether a fixed-budget Pareto search can recover comparable held-out behavior with a substantially smaller feature subset.")
+            lines.append("This comparison also fixes the interpretation of negative or small deltas. A sparse operating point can be preferable even when it does not dominate the strongest full-feature baseline, provided the reduction in inspected variables is large enough for the intended deployment setting. Conversely, if the proposed row improves accuracy without reducing the measurement budget, the evidence would support predictive performance but not the compactness claim. The table is therefore written to expose both dimensions rather than hiding the trade-off behind a single headline score.")
 
         if main_fig:
             main_ref = f"Figure~\\ref{{{figure_ref(main_key, main_fig)}}}"
@@ -951,6 +952,7 @@ class _GroundingTablesMixin:
                         ablation_scores.append((score, _GroundingTablesMixin._result_name(entry, "variant")))
             lines.append(ablation_discussion())
             lines.append("The ablation results are especially important because they prevent the paper from attributing every score difference to the evolutionary search itself. The best-accuracy selection and random-search variants test two different alternatives: changing the Pareto selection rule and replacing the structured search procedure. Their rows show whether accuracy gains come from the intended sparse-selection mechanism or from relaxing the compactness constraint.")
+            lines.append("We use these variants as diagnostic checks rather than as independent proposed methods. The best-accuracy selector answers whether the final Pareto choice is too conservative, while the random-search variant answers whether the evolutionary search is necessary under the same evaluation budget. Reading the ablation this way keeps the causal claim modest: the evidence can identify which design choices mattered in this run, but it does not turn one split into a universal ranking of search algorithms.")
             if ablation_fig:
                 ablation_ref = f"Figure~\\ref{{{figure_ref(ablation_key, ablation_fig)}}}"
                 lines.append(f"{ablation_ref} is read with Table~\\ref{{tab:ablation}} rather than as a separate result: it shows whether the strongest held-out score also requires a larger selected-feature budget. This is the key distinction for the lightweight use case, because an ablation that gains accuracy by expanding the measurement set may be less aligned with the target deployment setting than a slightly lower-scoring but more compact configuration.")
@@ -986,10 +988,13 @@ class _GroundingTablesMixin:
                 diag_ref = f"Figure~\\ref{{{figure_ref(diag_key, diag_fig)}}}"
                 if diag_kind == "trade":
                     lines.append(f"{diag_ref} links held-out score to selected-feature count, so the accuracy comparison is read as an accuracy--compactness trade-off rather than a standalone leaderboard. The figure is interpreted together with Table~\\ref{{tab:main_results}} and Table~\\ref{{tab:ablation}}, because the table values identify which operating points come from the same executed split.")
+                    lines.append("A useful point in this plot is not necessarily the uppermost marker; it is the marker that gives an acceptable score at the smallest feature budget. This visual criterion matches the method section's selection rule and makes the plotted frontier part of the argument rather than a decorative summary of the same table.")
                 elif diag_kind == "complexity":
                     lines.append(f"{diag_ref} separates deployment-time compactness from one-time search overhead. This distinction matters for lightweight tabular use cases: the deployed classifier is judged by selected features, coefficients, and prediction cost, while the wrapper search is a training-time model-selection expense.")
+                    lines.append("The complexity view is also a check against overstating efficiency. If a run is cheap only after an expensive search phase, the paper should say so; if the selected classifier is compact after training, that is the supported deployment claim. Keeping both costs visible helps users decide whether the method fits their own resource budget.")
                 else:
                     lines.append(f"{diag_ref} reports the optimization trace from the same artifacts. We use it only to characterize the fixed-budget search behavior, not to claim hardware-independent convergence guarantees.")
+                    lines.append("The trace is mainly a sanity check for the search budget. A stable frontier suggests that the selected model was not chosen from a completely degenerate run, while a noisy trace would motivate a repeated-seed follow-up before making stronger claims.")
                 add_figure_block(diag_fig, placement="ht", width="0.58\\linewidth")
             omitted = [name for name, fig in (("complexity", complexity_fig), ("optimization", optimization_fig)) if fig and primary_diagnostic and fig != primary_diagnostic[1]]
             if omitted:

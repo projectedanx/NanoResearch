@@ -122,7 +122,6 @@ class _ContextBuilderMixin(_ContextSectionsMixin):
             blueprint,
             experiment_analysis or {},
         )
-        evidence_lines = self._build_evidence_context(ideation, blueprint)
         real_results_lines = self._build_real_results_context(
             normalized_results,
             experiment_status,
@@ -143,9 +142,9 @@ class _ContextBuilderMixin(_ContextSectionsMixin):
             if mt or et:
                 full_text_lines.append(f"--- Paper: {p.get('title', 'Unknown')[:80]} ---")
                 if mt:
-                    full_text_lines.append(f"Method excerpt: {mt[:1500]}")
+                    full_text_lines.append(f"Method excerpt: {mt[:500]}")
                 if et:
-                    full_text_lines.append(f"Experiment excerpt: {et[:1500]}")
+                    full_text_lines.append(f"Experiment excerpt: {et[:500]}")
                 full_text_lines.append("")
         full_text_block = ""
         if full_text_lines:
@@ -156,9 +155,17 @@ class _ContextBuilderMixin(_ContextSectionsMixin):
             )
 
         # Truncate large JSON fields to prevent prompt overflow
-        gaps_str = json.dumps(gaps, indent=2, ensure_ascii=False)[:5000]
-        method_str = json.dumps(method, indent=2, ensure_ascii=False)[:8000]
-        survey_str = survey[:6000] if survey else ""
+        method_compact = {
+            "name": method.get("name", ""),
+            "description": method.get("description", ""),
+            "key_components": method.get("key_components", []),
+            "training_objective": method.get("training_objective") or method.get("objective") or "",
+            "selection_rule": method.get("selection_rule", ""),
+            "search_strategy": method.get("search_strategy", ""),
+        }
+        gaps_str = json.dumps(gaps, indent=2, ensure_ascii=False)[:1200]
+        method_str = json.dumps(method_compact, indent=2, ensure_ascii=False)[:2200]
+        survey_str = survey[:1400] if survey else ""
 
         return f"""Topic: {topic}
 
@@ -177,8 +184,6 @@ Datasets: {json.dumps([d.get('name', '') for d in datasets if isinstance(d, dict
 Metrics: {json.dumps([m.get('name', '') for m in metrics if isinstance(m, dict)], ensure_ascii=False)}
 Baselines: {json.dumps([b.get('name', '') for b in baselines if isinstance(b, dict)], ensure_ascii=False)}
 Ablation Groups: {json.dumps([a.get('group_name', '') for a in ablations if isinstance(a, dict)], ensure_ascii=False)}
-
-{evidence_lines}
 
 {real_results_lines}
 
@@ -199,7 +204,7 @@ Each contribution in Introduction MUST map to experimental evidence:
 Every component listed above should appear in the ablation table.
 === END ALIGNMENT ===
 
-{self._build_must_cite_context(ideation, cite_keys)}{full_text_block}"""
+{self._build_must_cite_context(ideation, cite_keys)}{full_text_block[:1800]}"""
 
     def _build_must_cite_context(self, ideation: dict, cite_keys: dict[int, str]) -> str:
         """Build a must-cite instruction block for writing prompts.
@@ -319,16 +324,25 @@ Every component listed above should appear in the ablation table.
             if mt or et:
                 full_text_lines.append(f"--- Paper: {p.get('title', 'Unknown')[:80]} ---")
                 if mt:
-                    full_text_lines.append(f"Method excerpt: {mt[:1500]}")
+                    full_text_lines.append(f"Method excerpt: {mt[:500]}")
                 if et:
-                    full_text_lines.append(f"Experiment excerpt: {et[:1500]}")
+                    full_text_lines.append(f"Experiment excerpt: {et[:500]}")
                 full_text_lines.append("")
+
+        method_compact = {
+            "name": method.get("name", ""),
+            "description": method.get("description", ""),
+            "key_components": method.get("key_components", []),
+            "training_objective": method.get("training_objective") or method.get("objective") or "",
+            "selection_rule": method.get("selection_rule", ""),
+            "search_strategy": method.get("search_strategy", ""),
+        }
 
         return {
             "topic": topic,
             "hypothesis": hypothesis,
             "method": method,
-            "method_str": json.dumps(method, indent=2, ensure_ascii=False)[:8000],
+            "method_str": json.dumps(method_compact, indent=2, ensure_ascii=False)[:2200],
             "method_name": method.get("name", ""),
             "method_brief": method.get("description", "")[:500],
             "key_components": method.get("key_components", []),

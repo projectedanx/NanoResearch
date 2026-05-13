@@ -201,25 +201,33 @@ class _CitationManagerMixin:
         ]
         selected_by_role: dict[str, list[str]] = {}
         needed = max(0, min_refs - len(cited))
-        for role in role_order:
-            if needed <= 0:
+        # First give each role a small presence, then keep cycling through all
+        # available roles until the paper text really cites the requested count.
+        # The old one-pass cap at four papers per role could leave the final
+        # manuscript with far fewer cited references than the expanded BibTeX pool.
+        while needed > 0:
+            progressed = False
+            for role in role_order:
+                keys = role_to_keys.get(role, [])
+                if not keys:
+                    continue
+                key = keys.pop(0)
+                selected_by_role.setdefault(role, []).append(key)
+                needed -= 1
+                progressed = True
+                if needed <= 0:
+                    break
+            if not progressed:
                 break
-            keys = role_to_keys.get(role, [])
-            if not keys:
-                continue
-            take = keys[: min(4, needed)]
-            selected_by_role[role] = take
-            needed -= len(take)
         if needed > 0:
             for role, keys in role_to_keys.items():
                 if needed <= 0:
                     break
-                if role in selected_by_role:
+                if role in role_order:
                     continue
-                take = keys[: min(4, needed)]
-                if take:
-                    selected_by_role[role] = take
-                    needed -= len(take)
+                while keys and needed > 0:
+                    selected_by_role.setdefault(role, []).append(keys.pop(0))
+                    needed -= 1
 
         if not selected_by_role:
             return latex

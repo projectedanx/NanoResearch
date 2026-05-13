@@ -56,6 +56,29 @@ class _ContextSectionsMixin:
                 ctx += impl_block
         return ctx
 
+    @staticmethod
+    def _compact_context_text(value: Any, limit: int) -> str:
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        text = re.sub(r"\s+", " ", text).strip()
+        if len(text) > limit:
+            return text[: max(0, limit - 15)].rstrip() + " ...[truncated]"
+        return text
+
+    @staticmethod
+    def _compact_json(value: Any, *, limit: int = 1600) -> str:
+        return _ContextSectionsMixin._compact_context_text(
+            json.dumps(value, indent=2, ensure_ascii=False), limit
+        )
+
+    def _compact_cite_keys_block(self, ref_lines: list[str], *, limit: int = 1800) -> str:
+        if not ref_lines:
+            return ""
+        selected = ref_lines[:12]
+        block = self._cite_keys_block(selected)
+        if len(ref_lines) > len(selected):
+            block += f"\n... {len(ref_lines) - len(selected)} additional citation keys available in references.bib."
+        return self._compact_context_text(block, limit)
+
     # --- Section-specific context builders ---
 
     def _ctx_introduction(
@@ -65,8 +88,8 @@ class _ContextSectionsMixin:
         **_kwargs: Any,
     ) -> str:
         """Introduction: topic, gaps, hypothesis, method brief, cite keys."""
-        gaps_str = json.dumps(core["gaps"], indent=2, ensure_ascii=False)[:3000]
-        survey_brief = core["survey"][:2000] if core["survey"] else ""
+        gaps_str = self._compact_json(core["gaps"], limit=900)
+        survey_brief = self._compact_context_text(core["survey"], 700) if core["survey"] else ""
 
         parts = [
             f"Topic: {core['topic']}",
@@ -84,7 +107,7 @@ class _ContextSectionsMixin:
             f"Datasets: {core['dataset_names']}",
             f"Metrics: {core['metric_names']}",
             "",
-            self._cite_keys_block(core["ref_lines"]),
+            self._compact_cite_keys_block(core["ref_lines"], limit=700),
         ]
         return "\n".join(p for p in parts if p is not None)
 
@@ -93,16 +116,15 @@ class _ContextSectionsMixin:
         core: dict[str, Any],
         **_kwargs: Any,
     ) -> str:
-        """Related Work: full survey, gaps, evidence, cite keys, must-cites, full-text."""
-        survey_str = core["survey"][:6000] if core["survey"] else ""
-        gaps_str = json.dumps(core["gaps"], indent=2, ensure_ascii=False)[:5000]
-        evidence_lines = self._build_evidence_context(core["ideation"], core["blueprint"])
+        """Related Work: compact survey, gaps, cite keys, must-cites, full-text."""
+        survey_str = self._compact_context_text(core["survey"], 1400) if core["survey"] else ""
+        gaps_str = self._compact_json(core["gaps"], limit=900)
 
         full_text_block = ""
         if core["full_text_lines"]:
             full_text_block = (
                 "\n\n=== FULL-TEXT EXCERPTS FROM KEY PAPERS ===\n"
-                + "\n".join(core["full_text_lines"])
+                + self._compact_context_text("\n".join(core["full_text_lines"][:4]), 1800)
                 + "\n=== END FULL-TEXT EXCERPTS ==="
             )
 
@@ -115,9 +137,7 @@ class _ContextSectionsMixin:
             "",
             f"Proposed Method: {core['method_name']}",
             "",
-            evidence_lines,
-            "",
-            self._cite_keys_block(core["ref_lines"]),
+            self._compact_cite_keys_block(core["ref_lines"], limit=1000),
             "",
             self._build_must_cite_context(core["ideation"], core["cite_keys"]),
             full_text_block,
@@ -134,7 +154,7 @@ class _ContextSectionsMixin:
         if core["full_text_lines"]:
             full_text_block = (
                 "\n\n=== FULL-TEXT EXCERPTS FROM KEY PAPERS ===\n"
-                + "\n".join(core["full_text_lines"])
+                + self._compact_context_text("\n".join(core["full_text_lines"][:3]), 1200)
                 + "\n=== END FULL-TEXT EXCERPTS ==="
             )
 
@@ -143,13 +163,12 @@ class _ContextSectionsMixin:
             "",
             f"Main Hypothesis: {core['hypothesis']}",
             "",
-            f"Proposed Method:\n{core['method_str']}",
+            f"Proposed Method:\n{self._compact_context_text(core['method_str'], 1800)}",
             "",
             f"Datasets: {core['dataset_names']}",
             f"Metrics: {core['metric_names']}",
             f"Ablation Groups: {core['ablation_names']}",
             "",
-            self._cite_keys_block(core["ref_lines"]),
             full_text_block,
         ]
         return "\n".join(p for p in parts if p is not None)
@@ -170,7 +189,6 @@ class _ContextSectionsMixin:
             core["blueprint"],
             experiment_analysis or {},
         )
-        evidence_lines = self._build_evidence_context(core["ideation"], core["blueprint"])
         real_results_lines = self._build_real_results_context(
             normalized_results, experiment_status,
         )
@@ -189,12 +207,10 @@ class _ContextSectionsMixin:
             f"Proposed Method: {core['method_name']}",
             f"Method Overview: {core['method_brief']}",
             "",
-            f"Datasets: {json.dumps(core['datasets'], indent=2, ensure_ascii=False)[:4000]}",
-            f"Metrics: {json.dumps(core['metrics'], indent=2, ensure_ascii=False)[:2000]}",
-            f"Baselines: {json.dumps(core['baselines'], indent=2, ensure_ascii=False)[:3000]}",
-            f"Ablation Groups: {json.dumps(ablations, indent=2, ensure_ascii=False)[:2000]}",
-            "",
-            evidence_lines,
+            f"Datasets: {self._compact_json(core['datasets'], limit=1600)}",
+            f"Metrics: {self._compact_json(core['metrics'], limit=900)}",
+            f"Baselines: {self._compact_json(core['baselines'], limit=1400)}",
+            f"Ablation Groups: {self._compact_json(ablations, limit=1000)}",
             "",
             real_results_lines,
             "",
@@ -203,8 +219,6 @@ class _ContextSectionsMixin:
             self._build_baseline_comparison_context(grounding),
             "",
             self._build_grounding_status_context(grounding),
-            "",
-            self._cite_keys_block(core["ref_lines"]),
             "",
             self._baseline_cite_block(core.get("baseline_cite_map", {})),
             "",

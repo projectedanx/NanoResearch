@@ -227,12 +227,11 @@ Return JSON:
             return (
                 "SECTION-SPECIFIC GUIDANCE (Related Work):\n"
                 "- Organize by THEME/APPROACH, not chronologically\n"
-                "- Each paragraph should cover one research direction with 3-5 citations\n"
-                "- For each cited work, briefly state its approach AND its limitation\n"
-                "- End each paragraph by explaining how your work addresses these limitations\n"
-                "- The final paragraph should clearly differentiate your approach from ALL prior work\n"
+                "- Keep the section to 2-3 dense positioning paragraphs unless the plan explicitly asks for a survey\n"
+                "- Each paragraph should cover one research direction with selected high-value citations, not a citation dump\n"
+                "- For each cited cluster, briefly state the approach and limitation relevant to this paper\n"
+                "- End by clearly differentiating your approach from the closest prior work\n"
                 "- Use \\citet{} when the author is the subject, \\citep{} for parenthetical\n"
-                "- Minimum 15 citations total for a strong Related Work section\n"
                 "- Cover at minimum: (1) the main task, (2) the key technique you use, "
                 "(3) closely related approaches you improve upon"
             )
@@ -248,10 +247,11 @@ Return JSON:
         elif "method" in section_lower or "approach" in section_lower:
             return (
                 "SECTION-SPECIFIC GUIDANCE (Method):\n"
-                "- Preserve or create at least three technical subsections: problem/protocol, search objective, final selection/refit/complexity\n"
-                "- Include a formal problem definition with mathematical notation and enough prose to explain every symbol\n"
-                "- Describe each component with equations, but split long equations with aligned environments when needed\n"
-                "- Explain the intuition behind each design choice and how leakage is avoided\n"
+                "- Preserve or create technical subsections in reader order: problem/protocol, evaluator/objective, search mechanism, final selection/refit, and complexity\n"
+                "- Define notation before the first displayed equation, including masks, objectives, archive/frontier terms, splits, and hyperparameters\n"
+                "- Use equations selectively for central definitions or objectives; do not turn every operation into a numbered formula\n"
+                "- Explain the intuition, implementation role, and leakage boundary behind each design choice\n"
+                "- Move current-run measured outcomes to Experiments: accuracy, F1, AUC, selected-feature counts, runtime, baseline comparisons, and ablation numbers do not belong in Method\n"
                 "- Reference only method/framework figures in this section; do not move result, ablation, efficiency, or complexity figures from Experiments into Method\n"
                 "- Keep the Method section substantive; do not compress it below roughly 700 words unless the original section is shorter"
             )

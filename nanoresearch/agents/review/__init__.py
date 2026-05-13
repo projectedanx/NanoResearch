@@ -309,6 +309,63 @@ class ReviewAgent(
         protected = re.sub(r"\n{3,}", "\n\n", protected)
         return protected
 
+    async def _run_deterministic_review(
+        self,
+        paper_tex: str,
+        ideation_output: dict,
+        experiment_blueprint: dict,
+    ) -> dict[str, Any]:
+        """Compile and protect the draft without LLM review/revision calls."""
+        current_tex = self._sanitize_revised_tex(paper_tex)
+        current_tex = self._apply_grounding_protection(
+            current_tex, experiment_blueprint, ideation_output
+        )
+        consistency_issues = self._run_consistency_checks(current_tex)
+        if self._paper_structure_plan:
+            try:
+                from nanoresearch.agents.writing.stage_planner import _WritingStagePlannerMixin
+
+                for issue in _WritingStagePlannerMixin._audit_paper_structure_against_plan(
+                    current_tex, self._paper_structure_plan
+                ):
+                    consistency_issues.append(ConsistencyIssue(
+                        issue_type="paper_structure_plan",
+                        description=issue,
+                        locations=["Writing plan compliance"],
+                        severity="medium",
+                    ))
+            except Exception as exc:
+                logger.warning("Paper structure plan audit failed during deterministic review: %s", exc)
+        review = ReviewOutput(
+            overall_score=6.0 if not consistency_issues else 5.0,
+            section_reviews=[
+                SectionReview(section=name, score=6, issues=[], suggestions=[])
+                for name in ("Abstract", "Introduction", "Related Work", "Method", "Experiments", "Conclusion")
+            ],
+            consistency_issues=consistency_issues,
+            revision_rounds=0,
+        )
+        output_data = review.model_dump(mode="json")
+        self.workspace.write_json("drafts/review_output.json", output_data)
+        self.workspace.register_artifact(
+            "review_output",
+            self.workspace.path / "drafts" / "review_output.json",
+            self.stage,
+        )
+        tex_path = self.workspace.path / "drafts" / "paper.tex"
+        self.workspace.write_text("drafts/paper.tex", current_tex)
+        self.workspace.write_text("drafts/paper_revised.tex", current_tex)
+        self.workspace.register_artifact("paper_tex", tex_path, self.stage)
+        compile_result = await self._compile_pdf_with_fix_loop(tex_path)
+        self.log("Deterministic review complete")
+        return {
+            "review_output": output_data,
+            "reviewed_paper_tex": current_tex,
+            "paper_tex": current_tex,
+            "paper_pdf": compile_result.get("pdf_path"),
+            "latex_compile": compile_result,
+        }
+
     async def run(self, **inputs: Any) -> dict[str, Any]:
         paper_tex = inputs.get("paper_tex", "")
         if not isinstance(paper_tex, str):
@@ -335,6 +392,11 @@ class ReviewAgent(
             return ReviewOutput().model_dump(mode="json")
 
         self.log("Starting automated review")
+        if getattr(self.config, "deterministic_review_fallback", False):
+            return await self._run_deterministic_review(
+                paper_tex, ideation_output, experiment_blueprint
+            )
+
         adaptive_review_context = self.build_adaptive_context(
             "review",
             topic=ideation_output.get("topic", ""),

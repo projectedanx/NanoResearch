@@ -49,8 +49,16 @@ class _WritingStagePlannerMixin:
             template_format=template_format,
             is_survey=is_survey,
         )
-        if is_survey:
+        if is_survey or not getattr(self.config, "llm_writing_stage_planner", False):
             self.workspace.write_json("plans/paper_structure_plan.json", fallback)
+            try:
+                self.workspace.register_artifact(
+                    "paper_structure_plan",
+                    self.workspace.path / "plans" / "paper_structure_plan.json",
+                    self.stage,
+                )
+            except Exception:
+                pass
             return fallback
 
         figures = (figure_output or {}).get("figures", {}) if isinstance(figure_output, dict) else {}
@@ -65,23 +73,47 @@ class _WritingStagePlannerMixin:
                         "backend": data.get("source_backend") or data.get("backend") or data.get("actual_model"),
                     })
 
+        method = blueprint.get("proposed_method", {}) if isinstance(blueprint, dict) else {}
+        method_summary = method
+        if isinstance(method, dict):
+            method_summary = {
+                "name": method.get("name") or method.get("method_name"),
+                "summary": self._compact_planner_value(method.get("summary") or method.get("description") or "", max_string=600),
+                "key_components": self._compact_planner_value(method.get("key_components", []), max_items=6, max_string=180),
+                "training_objective": self._compact_planner_value(method.get("training_objective") or method.get("objective") or "", max_string=500),
+            }
+        ablation_summary = []
+        for group in (blueprint.get("ablation_groups", []) if isinstance(blueprint, dict) else [])[:5]:
+            if isinstance(group, dict):
+                ablation_summary.append({
+                    "group_name": group.get("group_name") or group.get("name"),
+                    "description": self._compact_planner_value(group.get("description", ""), max_string=240),
+                    "variants": [
+                        self._compact_planner_value(v.get("variant_id") or v.get("name") or v, max_string=120)
+                        if isinstance(v, dict) else self._compact_planner_value(v, max_string=120)
+                        for v in (group.get("variants", []) or [])[:3]
+                    ],
+                })
+            else:
+                ablation_summary.append(self._compact_planner_value(group, max_string=180))
+
         payload = {
-            "topic": ideation.get("topic", core_ctx.get("topic", "")),
+            "topic": self._compact_planner_value(ideation.get("topic", core_ctx.get("topic", "")), max_string=500),
             "template_format": template_format,
-            "router_and_adaptive_context": adaptive_context[-5000:] if adaptive_context else "",
-            "method": blueprint.get("proposed_method", {}),
-            "datasets": blueprint.get("datasets", [])[:4],
-            "metrics": blueprint.get("metrics", [])[:8],
-            "baselines": blueprint.get("baselines", [])[:8],
-            "ablation_groups": blueprint.get("ablation_groups", [])[:8],
+            "router_and_adaptive_context": self._compact_planner_value(adaptive_context or "", max_string=1200),
+            "method": method_summary,
+            "datasets": self._compact_planner_value(blueprint.get("datasets", [])[:4], max_items=4, max_string=160),
+            "metrics": self._compact_planner_value(blueprint.get("metrics", [])[:8], max_items=8, max_string=100),
+            "baselines": self._compact_planner_value(blueprint.get("baselines", [])[:8], max_items=8, max_string=140),
+            "ablation_groups": ablation_summary,
             "grounding": grounding.to_output_dict(),
-            "final_metrics": grounding.final_metrics,
+            "final_metrics": self._compact_planner_value(grounding.final_metrics, max_items=12, max_string=120),
             "main_results_count": len(grounding.main_results),
             "ablation_results_count": len(grounding.ablation_results),
             "has_main_table": bool(grounding.main_table_latex),
             "has_ablation_table": bool(grounding.ablation_table_latex),
-            "evidence_gaps": grounding.evidence_gaps[:8],
-            "figure_summary": figure_summary,
+            "evidence_gaps": self._compact_planner_value(grounding.evidence_gaps[:8], max_items=8, max_string=180),
+            "figure_summary": self._compact_planner_value(figure_summary, max_items=10, max_string=240),
             "available_sections": [heading for heading, _label, _instr, _figs in section_list],
             "citation_count": len(core_ctx.get("cite_keys", {}) or {}),
         }
@@ -91,6 +123,7 @@ class _WritingStagePlannerMixin:
   "section_goals": {"Introduction": ["..."], "Related Work": ["..."], "Method": ["..."], "Experiments": ["..."], "Conclusion": ["..."]},
   "related_work_axes": ["2-3 positioning axes"],
   "method_subsections": ["subsection titles or technical units"],
+  "method_narrative_plan": ["ordered method moves: notation/evaluator/objective/search/selection/complexity"],
   "experiment_storyline": ["ordered prose/table/figure moves"],
   "finding_units": [{"claim": "artifact-backed finding", "evidence": ["table/figure keys"], "interpretation": "why it matters", "scope_limit": "what this run does not establish"}],
   "layout_constraints": [{"section": "Experiments", "rule": "one float at a time with prose before the next float"}],
@@ -99,6 +132,12 @@ class _WritingStagePlannerMixin:
   "forbidden_claims": ["claims not supported by current artifacts"],
   "review_checklist": ["checks the reviewer/revision stage must enforce"]
 }
+
+Method-specific planning constraints:
+- method_narrative_plan must put definitions before equations: problem notation and feature/model symbols, training-only evaluator, objective terms, search/archive mechanism, Pareto/final selection, final refit, then complexity.
+- Do not plan current-run measured outcomes in Method. Selected feature counts, final scores, ablation values, runtime, and baseline comparisons belong in Experiments.
+- Prefer a short running example, then intuition, then formalism for each mechanism.
+- Plan equations selectively; a sequence of displayed formulas without explanatory prose is a failure.
 
 Return only JSON. Keep the plan specific to the artifacts. Do not include fake numbers.
 
@@ -124,6 +163,34 @@ Context JSON:
         return plan
 
     @staticmethod
+    def _compact_planner_value(value: Any, *, max_items: int = 6, max_string: int = 500) -> Any:
+        """Keep the planner prompt small enough for slow OpenAI-compatible endpoints."""
+        if isinstance(value, str):
+            text = re.sub(r"\s+", " ", value).strip()
+            if len(text) > max_string:
+                return text[: max_string - 15].rstrip() + " ...[truncated]"
+            return text
+        if isinstance(value, dict):
+            compact: dict[str, Any] = {}
+            for idx, (key, item) in enumerate(value.items()):
+                if idx >= max_items:
+                    compact["__truncated_keys__"] = len(value) - max_items
+                    break
+                compact[str(key)] = _WritingStagePlannerMixin._compact_planner_value(
+                    item, max_items=max_items, max_string=max_string
+                )
+            return compact
+        if isinstance(value, list):
+            compact_list = [
+                _WritingStagePlannerMixin._compact_planner_value(item, max_items=max_items, max_string=max_string)
+                for item in value[:max_items]
+            ]
+            if len(value) > max_items:
+                compact_list.append({"__truncated_items__": len(value) - max_items})
+            return compact_list
+        return value
+
+    @staticmethod
     def _fallback_writing_stage_plan(
         *,
         ideation: dict[str, Any],
@@ -142,6 +209,14 @@ Context JSON:
         method_units = [str(c) for c in components[:4] if str(c).strip()]
         if not method_units:
             method_units = ["Problem formulation", "Model design", "Training objective", "Complexity and deployment cost"]
+        method_narrative_plan = [
+            "Problem setup and notation: define inputs, labels, splits, masks, selected feature/model components, and the leakage boundary before any formal objective.",
+            "Training-only evaluator: describe the validation estimator and metrics used during search without using held-out test labels.",
+            "Objective terms: define predictive quality, compactness, and any regularization or budget terms before Pareto/frontier notation.",
+            "Search mechanism: explain candidate generation, update, archive/frontier maintenance, and stopping rule in implementation order.",
+            "Selection and final refit: specify how the final candidate is chosen from training/validation evidence and then refit for test evaluation.",
+            "Complexity summary: give only central time/space expressions that help reimplementation; keep secondary derivations in prose.",
+        ]
         figures = (figure_output or {}).get("figures", {}) if isinstance(figure_output, dict) else {}
         placements: list[dict[str, str]] = []
         if isinstance(figures, dict):
@@ -179,12 +254,13 @@ Context JSON:
             "section_goals": {
                 "Introduction": ["Motivate the problem concretely", "State the gap and contributions early", "Do not overclaim beyond artifacts"],
                 "Related Work": ["Use 2-3 thematic positioning axes", "Acknowledge prior work fairly", "End by differentiating the proposed method"],
-                "Method": ["Define notation", "Explain each core mechanism", "Use compact equations that fit page width", "Discuss complexity only when supported"],
+                "Method": ["Define notation before formulas", "Explain each core mechanism in implementation order", "Use compact equations only for central definitions", "Keep measured outcomes in Experiments"],
                 "Experiments": ["State protocol before results", "Place each table/figure near explanatory prose", "Use only measured artifacts for numbers", "Scope missing evidence academically"],
                 "Conclusion": ["Summarize supported findings", "State limitations without engineering placeholders", "Avoid new claims"],
             },
             "related_work_axes": ["task and dataset context", "closest methodological baselines", "gap addressed by the proposed method"],
             "method_subsections": method_units,
+            "method_narrative_plan": method_narrative_plan,
             "experiment_storyline": ["experimental protocol", "main measured comparison", "ablation evidence when available", "optimization and complexity diagnostics when available", "scope of evidence"],
             "figure_table_placement": placements,
             "finding_units": [
@@ -198,6 +274,7 @@ Context JSON:
             "layout_constraints": [
                 {"section": "Experiments", "rule": "Interleave prose, table, prose, figure; never emit a bare stack of floats."},
                 {"section": "Method", "rule": "Use equations selectively and surround each displayed equation with narrative explanation."},
+                {"section": "Method", "rule": "Do not include current-run accuracy, F1, AUC, selected-feature counts, baseline comparisons, or runtime outcomes."},
                 {"section": "Conclusion", "rule": "No figures or tables."},
             ],
             "required_claims": [result_claim],
@@ -208,7 +285,9 @@ Context JSON:
             ],
             "review_checklist": [
                 "Related Work is not longer or more detailed than Method.",
+                "Method follows notation/evaluator/objective/search/selection/complexity order.",
                 "Method contains concrete technical mechanisms and compact equations.",
+                "Method contains no current-run measured outcomes that belong in Experiments.",
                 "Experiments contain explanatory prose around every result table or figure.",
                 "No result figure/table is placed in Conclusion or References.",
                 "All numeric claims are grounded in artifacts or explicitly published evidence.",
@@ -220,7 +299,7 @@ Context JSON:
         normalized = dict(fallback)
         for key in (
             "section_budget", "section_goals", "related_work_axes", "method_subsections",
-            "experiment_storyline", "figure_table_placement", "required_claims",
+            "method_narrative_plan", "experiment_storyline", "figure_table_placement", "required_claims",
             "forbidden_claims", "review_checklist", "finding_units", "layout_constraints",
         ):
             value = plan.get(key)
@@ -251,6 +330,9 @@ Context JSON:
         if heading == "Method" and plan.get("method_subsections"):
             lines.append("Required method units/subsections:")
             lines.extend(f"- {x}" for x in plan.get("method_subsections", [])[:8])
+        if heading == "Method" and plan.get("method_narrative_plan"):
+            lines.append("Required method narrative order:")
+            lines.extend(f"- {x}" for x in plan.get("method_narrative_plan", [])[:8])
         if heading == "Experiments" and plan.get("experiment_storyline"):
             lines.append("Experiment storyline order:")
             lines.extend(f"- {x}" for x in plan.get("experiment_storyline", [])[:8])
@@ -299,7 +381,9 @@ Context JSON:
         elif heading == "Method":
             section_specific = (
                 "\nPLAN OVERRIDE: Method must be technically substantive and should not be shorter than Related Work. "
-                "Use subsections from the plan when appropriate, and keep display equations compact enough for a two-column paper."
+                "Follow the planned reader order before introducing Pareto/search notation. "
+                "Use subsections from the plan when appropriate, keep display equations compact enough for a two-column paper, "
+                "and move all current-run measured outcomes to Experiments."
             )
         elif heading == "Experiments":
             section_specific = (
@@ -337,6 +421,40 @@ Context JSON:
                 issues.append("Method is too short relative to Related Work under the paper structure plan.")
         if method and len(re.findall(r"\\subsection\{", method)) < 2:
             issues.append("Method has fewer than two subsections; plan expects explicit technical units.")
+        if method:
+            method_no_floats = re.sub(
+                r"\\begin\{(?:figure|table)\*?\}.*?\\end\{(?:figure|table)\*?\}",
+                "",
+                method,
+                flags=re.DOTALL,
+            )
+            method_text = re.sub(r"\\cite\w*\{[^}]+\}", "", method_no_floats)
+            outcome_patterns = [
+                r"\b(?:achieves?|achieved|obtains?|obtained|yields?|yielded|scores?|scored)\b[^.]{0,90}\b\d+(?:\.\d+)?\b",
+                r"\b(?:accuracy|auc|f1|precision|recall|runtime|latency|gpu hours?|api calls?|tokens?)\b[^.]{0,90}\b\d+(?:\.\d+)?\b",
+                r"\bselected\s+\d+\s+(?:of|/)\s+\d+\b",
+                r"\b\d+(?:\.\d+)?\s*(?:\\%|percent)\b",
+            ]
+            if any(re.search(pat, method_text, flags=re.IGNORECASE) for pat in outcome_patterns):
+                issues.append("Method appears to contain current-run measured outcomes; move these claims to Experiments.")
+            display_eqs = len(re.findall(r"\\begin\{(?:equation|align|gather|multline)\*?\}", method))
+            method_words = len(re.findall(r"\b\w+\b", method_text))
+            if display_eqs >= 5 and method_words < 180 * display_eqs:
+                issues.append("Method is too formula-dense; add mechanism prose or move secondary derivations out of displayed equations.")
+            bad_formula_note = re.search(
+                r"(?:The|This)\s+(?:set|objective|classifier|model|score|loss|frontier|archive)\s+is\s*[:.]?\s*\n\s*\\begin\{(?:equation|align)",
+                method,
+                flags=re.IGNORECASE,
+            )
+            if bad_formula_note:
+                issues.append("Method uses formula-note prose before an equation; replace with intuition and implementation meaning.")
+            lower_method = method_text.lower()
+            pareto_positions = [lower_method.find(token) for token in ("pareto", "frontier", "archive")]
+            pareto_positions = [pos for pos in pareto_positions if pos >= 0]
+            objective_positions = [lower_method.find(token) for token in ("objective", "validation", "mask", "selected feature", "selected set")]
+            objective_positions = [pos for pos in objective_positions if pos >= 0]
+            if pareto_positions and (not objective_positions or min(pareto_positions) + 120 < min(objective_positions)):
+                issues.append("Method introduces Pareto/frontier/archive before defining masks, objectives, or evaluator.")
         if experiments:
             float_count = len(re.findall(r"\\begin\{(?:figure|table)\*?\}", experiments))
             prose_words = len(re.findall(r"\b\w+\b", re.sub(r"\\begin\{(?:figure|table)\*?\}.*?\\end\{(?:figure|table)\*?\}", "", experiments, flags=re.DOTALL)))
