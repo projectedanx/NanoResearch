@@ -653,6 +653,7 @@ class BaseResearchAgent(ABC):
         stage_override: StageModelConfig | None = None,
         reminder_text: str | None = None,
         reminder_interval: int = 3,
+        final_instruction: str | None = None,
     ) -> str:
         """Run a ReAct loop: let the LLM call tools until it produces text."""
         cfg = stage_override if stage_override is not None else self.stage_config
@@ -766,14 +767,18 @@ class BaseResearchAgent(ABC):
         evidence = "\n\n".join(evidence_items[-8:])
         if len(evidence) > 6000:
             evidence = evidence[:6000].rstrip() + "\n...[tool evidence truncated before final answer]"
+        final_request = final_instruction or (
+            user_prompt
+            + "\n\nUse the compact tool evidence below to produce the requested final answer. "
+            + "Do not call more tools."
+        )
         final_messages = [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": (
-                    user_prompt
-                    + "\n\nUse the compact tool evidence below to produce the requested final answer. "
-                    + "Do not call more tools.\n\n=== COMPACT TOOL EVIDENCE ===\n"
+                    final_request
+                    + "\n\n=== COMPACT TOOL EVIDENCE ===\n"
                     + evidence
                     + "\n=== END COMPACT TOOL EVIDENCE ==="
                 ),

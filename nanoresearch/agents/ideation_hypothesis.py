@@ -212,11 +212,37 @@ Before finalizing hypotheses, you MUST use the search tools to:
 
 Return ONLY valid JSON."""
 
+        compact_final_instruction = f"""Research Topic: \"{topic}\"
+
+Use the compact tool evidence below and return ONLY valid JSON with this schema:
+{{
+  "survey_summary": "120-180 word evidence-scoped summary. State when evidence is sparse.",
+  "gaps": [
+    {{"gap_id": "GAP-001", "description": "specific gap", "supporting_refs": ["paper title or evidence item"], "severity": "medium", "quantitative_evidence": "evidence-scoped count or limitation", "future_work_mention": "if known, else not found"}}
+  ],
+  "hypotheses": [
+    {{"hypothesis_id": "HYP-001", "statement": "testable method hypothesis", "gap_refs": ["GAP-001"], "novelty_justification": "closest evidence and concrete difference", "feasibility_notes": "compute/data/implementation notes", "closest_existing_work": "title or not found"}}
+  ],
+  "selected_hypothesis": "HYP-001",
+  "rationale": "1-2 sentences, evidence-scoped"
+}}
+
+Requirements:
+- Produce 2-3 gaps and 2-3 hypotheses.
+- Do not claim a comprehensive literature review if evidence is sparse.
+- Do not invent metrics, SOTA numbers, datasets, or paper titles not present in the evidence.
+- Prefer a feasible single-GPU ESM2 LoRA/adapter plan for fluorescence prediction.
+"""
+
         try:
             tools = await self._build_search_tools()
             if len(tools) > 0:
                 react_result = await self.generate_with_tools(
-                    IDEATION_ANALYSIS_SYSTEM, prompt, tools, max_tool_rounds=2
+                    IDEATION_ANALYSIS_SYSTEM,
+                    prompt,
+                    tools,
+                    max_tool_rounds=2,
+                    final_instruction=compact_final_instruction,
                 )
                 text = react_result.strip()
                 if text.startswith("```"):
@@ -233,13 +259,13 @@ Return ONLY valid JSON."""
                         "falling back to standard generation. Output preview: %r",
                         self.stage.value, e, text[:200],
                     )
-                    result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, prompt)
+                    result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, compact_final_instruction)
             else:
-                result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, prompt)
+                result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, compact_final_instruction)
         except Exception as e:
-            logger.warning("[%s] ReAct tool-use failed, falling back to standard generation: %s",
+            logger.warning("[%s] ReAct tool-use failed, falling back to compact standard generation: %s",
                            self.stage.value, e)
-            result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, prompt)
+            result = await self.generate_json(IDEATION_ANALYSIS_SYSTEM, compact_final_instruction)
 
         if isinstance(result, list):
             logger.warning(
