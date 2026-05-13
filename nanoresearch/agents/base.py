@@ -757,6 +757,10 @@ class BaseResearchAgent(ABC):
                 messages.append({"role": "system", "content": _reminder})
 
         self.log(f"Exceeded {max_tool_rounds} tool rounds, forcing final answer")
+        for message in messages:
+            if message.get("role") == "tool":
+                message["content"] = _truncate_tool_result(str(message.get("content", "")))
+        _compact_messages_if_needed(messages)
         final_msg = await self._dispatcher.generate_with_tools(cfg, messages, tools=None)
         if hasattr(final_msg, 'tool_calls') and final_msg.tool_calls:
             return self._dispatcher._strip_think_blocks(

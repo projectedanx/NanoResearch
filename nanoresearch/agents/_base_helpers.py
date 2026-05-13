@@ -27,9 +27,9 @@ _LATEX_CMD_PREFIXES = frozenset([
 
 # ---- Tool result management (OpenClaw-inspired patterns) ----
 
-_MAX_TOOL_RESULT_CHARS = 2200
-_HEAD_CHARS = 1200
-_TAIL_CHARS = 700
+_MAX_TOOL_RESULT_CHARS = 900
+_HEAD_CHARS = 550
+_TAIL_CHARS = 250
 # Approximate token limit for proactive compaction (chars ~ tokens * 4)
 _CONTEXT_COMPACT_THRESHOLD_CHARS = 100_000
 _PROTECTED_TAIL_TURNS = 6  # keep last N messages intact during compaction
@@ -43,7 +43,7 @@ def _compact_paper_result(text: str) -> str | None:
     if not isinstance(payload, list) or not payload:
         return None
     compacted: list[dict[str, Any]] = []
-    for item in payload[:5]:
+    for item in payload[:3]:
         if not isinstance(item, dict):
             return None
         abstract = " ".join(str(item.get("abstract", "")).split())
@@ -54,7 +54,7 @@ def _compact_paper_result(text: str) -> str | None:
             "citation_count": item.get("citation_count", 0),
             "doi": item.get("doi", ""),
             "url": item.get("url", ""),
-            "abstract": abstract[:500] + (" ..." if len(abstract) > 500 else ""),
+            "abstract": abstract[:220] + (" ..." if len(abstract) > 220 else ""),
         })
     suffix = ""
     if len(payload) > len(compacted):
