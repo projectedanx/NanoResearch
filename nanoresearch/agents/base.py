@@ -757,11 +757,29 @@ class BaseResearchAgent(ABC):
                 messages.append({"role": "system", "content": _reminder})
 
         self.log(f"Exceeded {max_tool_rounds} tool rounds, forcing final answer")
+        evidence_items: list[str] = []
         for message in messages:
             if message.get("role") == "tool":
-                message["content"] = _truncate_tool_result(str(message.get("content", "")))
-        _compact_messages_if_needed(messages)
-        final_msg = await self._dispatcher.generate_with_tools(cfg, messages, tools=None)
+                content = _truncate_tool_result(str(message.get("content", "")))
+                if content:
+                    evidence_items.append(content)
+        evidence = "\n\n".join(evidence_items[-8:])
+        if len(evidence) > 6000:
+            evidence = evidence[:6000].rstrip() + "\n...[tool evidence truncated before final answer]"
+        final_messages = [
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    user_prompt
+                    + "\n\nUse the compact tool evidence below to produce the requested final answer. "
+                    + "Do not call more tools.\n\n=== COMPACT TOOL EVIDENCE ===\n"
+                    + evidence
+                    + "\n=== END COMPACT TOOL EVIDENCE ==="
+                ),
+            },
+        ]
+        final_msg = await self._dispatcher.generate_with_tools(cfg, final_messages, tools=None)
         if hasattr(final_msg, 'tool_calls') and final_msg.tool_calls:
             return self._dispatcher._strip_think_blocks(
                 final_msg.content or "Agent completed but produced no text summary."
