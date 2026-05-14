@@ -117,8 +117,8 @@ class _SetupSearchMixin:
             readme_content = ""
             for readme_name in ["README.md", "readme.md", "README.rst"]:
                 readme_path = repo_path / readme_name
-                if readme_path.exists():
-                    readme_content = readme_path.read_text(errors="replace")[:3000]
+                if await asyncio.to_thread(readme_path.exists):
+                    readme_content = (await asyncio.to_thread(readme_path.read_text, errors="replace"))[:3000]
                     break
 
             key_snippets = []
@@ -126,7 +126,7 @@ class _SetupSearchMixin:
                 fname = Path(f).name.lower()
                 if any(kw in fname for kw in ["model", "train", "config", "main", "run"]):
                     try:
-                        content = Path(f).read_text(errors="replace")[:2000]
+                        content = (await asyncio.to_thread(Path(f).read_text, errors="replace"))[:2000]
                         key_snippets.append({"file": f, "content": content})
                     except Exception as exc:
                         logger.debug("Failed to read repo snippet %s: %s", f, exc)
