@@ -19,7 +19,8 @@ logger = logging.getLogger(__name__)
 class _WritingAgentMixin:
     """Mixin — WritingAgent.run() and figure placement logic."""
 
-    async def run(self, **inputs: Any) -> dict[str, Any]:
+
+    async def _setup_paper_context(self, **inputs: Any) -> dict[str, Any]:
         ideation: dict = inputs.get("ideation_output", {})
         blueprint: dict = inputs.get("experiment_blueprint", {})
         figure_output: dict = inputs.get("figure_output", {})
@@ -108,9 +109,40 @@ class _WritingAgentMixin:
         # Title & abstract need a broad context
         title_abstract_ctx = self._ctx_introduction(core_ctx, grounding=grounding)
         if adaptive_context:
-            title_abstract_ctx = f"{title_abstract_ctx}\n\n{self._compact_context_text(adaptive_context, 500)}"
+            title_abstract_ctx = f"{title_abstract_ctx}\n\n{self._compact_context_text(str(adaptive_context), 500)}"
 
         deterministic_writing = bool(getattr(self.config, "deterministic_writing_fallback", False))
+        figure_blocks = self._build_figure_blocks(blueprint, figure_output)
+
+        return {
+            "ideation": ideation,
+            "blueprint": blueprint,
+            "figure_output": figure_output,
+            "template_format": template_format,
+            "experiment_results": experiment_results,
+            "experiment_analysis": experiment_analysis,
+            "experiment_summary": experiment_summary,
+            "experiment_status": experiment_status,
+            "authors": authors,
+            "paper_mode_str": paper_mode_str,
+            "is_survey": is_survey,
+            "section_list": section_list,
+            "adaptive_context": adaptive_context,
+            "grounding": grounding,
+            "cite_keys": cite_keys,
+            "bibtex": bibtex,
+            "core_ctx": core_ctx,
+            "title_abstract_ctx": title_abstract_ctx,
+            "deterministic_writing": deterministic_writing,
+            "figure_blocks": figure_blocks,
+        }
+
+    async def _generate_frontmatter(self, ctx: dict[str, Any]) -> tuple[str, str]:
+        title_abstract_ctx = ctx["title_abstract_ctx"]
+        deterministic_writing = ctx["deterministic_writing"]
+        blueprint = ctx["blueprint"]
+        core_ctx = ctx["core_ctx"]
+        grounding = ctx["grounding"]
 
         # Step 1: Generate title
         if deterministic_writing:
@@ -130,10 +162,20 @@ class _WritingAgentMixin:
             abstract = await self._generate_abstract(title_abstract_ctx, grounding)
         self.log("Abstract generated")
 
-        # Step 3: Build figures & table data from blueprint
-        figure_blocks = self._build_figure_blocks(blueprint, figure_output)
+        return title, abstract
 
-        # Step 3b: Expand router/adaptive guidance into a concrete writing plan.
+    async def _generate_paper_plan(self, ctx: dict[str, Any]) -> dict[str, Any]:
+        deterministic_writing = ctx["deterministic_writing"]
+        ideation = ctx["ideation"]
+        blueprint = ctx["blueprint"]
+        grounding = ctx["grounding"]
+        figure_output = ctx["figure_output"]
+        section_list = ctx["section_list"]
+        template_format = ctx["template_format"]
+        is_survey = ctx["is_survey"]
+        core_ctx = ctx["core_ctx"]
+        adaptive_context = ctx["adaptive_context"]
+
         if deterministic_writing:
             paper_structure_plan = self._fallback_writing_stage_plan(
                 ideation=ideation,
@@ -152,27 +194,40 @@ class _WritingAgentMixin:
                 grounding=grounding,
                 figure_output=figure_output,
                 core_ctx=core_ctx,
-                adaptive_context=adaptive_context or "",
+                adaptive_context=str(adaptive_context) if adaptive_context else "",
                 section_list=section_list,
                 template_format=template_format,
                 is_survey=is_survey,
             )
         self.log("Paper structure plan generated")
+        return paper_structure_plan
 
-        # Step 4: Generate each section independently, embed figures inline
+    async def _generate_all_sections(
+        self, ctx: dict[str, Any], paper_structure_plan: dict[str, Any]
+    ) -> tuple[list[Section], set[str]]:
         placed_figures: set[str] = set()
+        sections: list[Section] = []
+        prior_sections_summary: list[str] = []
 
-        # P0-B: Contribution contract
+        is_survey = ctx["is_survey"]
+        section_list = ctx["section_list"]
+        core_ctx = ctx["core_ctx"]
+        grounding = ctx["grounding"]
+        experiment_results = ctx["experiment_results"]
+        experiment_status = ctx["experiment_status"]
+        experiment_analysis = ctx["experiment_analysis"]
+        experiment_summary = ctx["experiment_summary"]
+        figure_blocks = ctx["figure_blocks"]
+        blueprint = ctx["blueprint"]
+        deterministic_writing = ctx["deterministic_writing"]
+        ideation = ctx["ideation"]
+
         contribution_contract: ContributionContract | None = None
         method_name = (blueprint.get("proposed_method") or {}).get("name", "")
 
-        sections = []
-        prior_sections_summary: list[str] = []
         for heading, label, section_instructions, fig_keys in section_list:
-            # For surveys: use survey-specific prompts (stored separately) and skip experiment results
             if is_survey:
                 instructions = SURVEY_SECTION_PROMPTS.get(label, section_instructions)
-                # Surveys do not have experiment results — pass None/defaults to context builders
                 ctx_experiment_results: dict | None = None
                 ctx_experiment_status: str = "pending"
                 ctx_experiment_analysis: dict | None = None
@@ -197,14 +252,11 @@ class _WritingAgentMixin:
                 experiment_summary=ctx_experiment_summary,
                 prior_sections=_prior_content,
             )
-            # Keep section prompts close to the original compact writing path.
-            # Adaptive memory/skills are already reflected in the local plan and
-            # should not be repeated in every long-form generation request.
+
             plan_block = self._writing_plan_section_block(paper_structure_plan, heading)
             if plan_block:
                 section_ctx = f"{section_ctx}\n\n{plan_block}"
 
-            # Contribution contract is only for original research (not surveys)
             if not is_survey and contribution_contract and label != "sec:intro":
                 contract_block = contribution_contract.for_section(label)
                 if contract_block:
@@ -241,8 +293,6 @@ class _WritingAgentMixin:
             conclusion_binding = ""
             if label == "sec:conclusion":
                 if is_survey:
-                    # Surveys bind to key_challenges and future_directions instead of experiment results
-                    ideation = inputs.get("ideation_output", {})
                     key_challenges = ideation.get("key_challenges", []) if isinstance(ideation, dict) else []
                     future_directions = ideation.get("future_directions", []) if isinstance(ideation, dict) else []
                     if key_challenges or future_directions:
@@ -312,13 +362,12 @@ class _WritingAgentMixin:
                     context_with_figs, heading, instructions, prior_sections_summary
                 )
 
-                # Post-generation table verification for Experiments
                 if label == "sec:experiments" and (
                     grounding.main_table_latex or grounding.ablation_table_latex
                 ):
                     content = self._verify_and_inject_tables(content, grounding, heading)
 
-            # Detect figures the LLM already embedded
+            import re
             llm_placed_labels = re.findall(
                 r'\\begin\{figure\*?\}.*?\\label\{fig:([^}]+)\}.*?\\end\{figure\*?\}',
                 content, re.DOTALL,
@@ -328,7 +377,7 @@ class _WritingAgentMixin:
                     placed_figures.add(fig_label)
                     self.log(f"  LLM already placed fig:{fig_label} in {heading}")
             llm_placed_files = re.findall(
-                r'\\includegraphics(?:\[[^\]]*\])?\{([^}]+)\}', content,
+                r'\\includegraphics(?:\\[[^\]]*\\])?\{([^}]+)\}', content,
             )
             for fname in llm_placed_files:
                 stem = fname.rsplit(".", 1)[0]
@@ -339,9 +388,6 @@ class _WritingAgentMixin:
                         placed_figures.add(fk)
                         self.log(f"  LLM already included {fname} -> marking fig:{fk} as placed in {heading}")
 
-            # Smart figure placement. Artifact-composed Experiments already
-            # contains prose around each figure, so do not append more result
-            # figures after the composer has ordered them.
             if not deterministic_experiments:
                 content, placed_figures = self._place_section_figures(
                     content, label, heading, figure_blocks, placed_figures,
@@ -351,7 +397,6 @@ class _WritingAgentMixin:
             snippet = content[:200].replace("\n", " ").strip()
             prior_sections_summary.append(f"[{heading}]: {snippet}...")
 
-            # P0-B: Extract contribution contract after Introduction (original research only)
             if not is_survey and label == "sec:intro" and not contribution_contract:
                 contribution_contract = self._extract_contribution_contract(content, method_name)
                 if contribution_contract.claims:
@@ -362,7 +407,12 @@ class _WritingAgentMixin:
                 else:
                     self.log("No contribution claims extracted from Introduction")
 
-        # Fallback: distribute remaining figures
+        return sections, placed_figures
+
+    def _distribute_remaining_figures(
+        self, sections: list[Section], placed_figures: set[str], ctx: dict[str, Any]
+    ) -> set[str]:
+        figure_blocks = ctx["figure_blocks"]
         remaining = [k for k in figure_blocks if k not in placed_figures]
         if remaining:
             self.log(f"Fallback placement for {len(remaining)} unplaced figures: {remaining}")
@@ -395,7 +445,6 @@ class _WritingAgentMixin:
                             self.log(f"  Placed '{fk}' -> sec:experiments (fallback)")
                             break
 
-        # Post-assembly validation
         final_missing = [k for k in figure_blocks if k not in placed_figures]
         if final_missing:
             self.log(f"CRITICAL: {len(final_missing)} figures still unplaced after all passes: {final_missing}")
@@ -408,18 +457,26 @@ class _WritingAgentMixin:
 
         self.log(f"Figure placement complete: {len(figure_blocks)} blocks, "
                  f"{len(placed_figures)} placed")
-
-        # Per-section dedup
         self._dedup_section_figures(sections)
+        return placed_figures
 
-        # Step 5: Build skeleton
+    async def _refine_and_validate_latex(
+        self, title: str, abstract: str, sections: list[Section], ctx: dict[str, Any], paper_structure_plan: dict[str, Any]
+    ) -> tuple[str, str, list[str], dict, list[str], PaperSkeleton]:
+        authors = ctx["authors"]
+        template_format = ctx["template_format"]
+        bibtex = ctx["bibtex"]
+        figure_output = ctx["figure_output"]
+        grounding = ctx["grounding"]
+        ideation = ctx["ideation"]
+        cite_keys = ctx["cite_keys"]
+
         skeleton = PaperSkeleton(
             title=title, authors=authors, abstract=abstract,
             sections=sections, figures=[],
             template_format=template_format, references_bibtex=bibtex,
         )
 
-        # Step 6: Render LaTeX + sanitize
         latex_content = self._render_latex(skeleton)
         latex_content = self._sanitize_latex(latex_content)
 
@@ -431,22 +488,15 @@ class _WritingAgentMixin:
             for issue in structure_issues:
                 self.log(f"  - {issue}")
 
-        # Step 6b-pre: Full-document figure dedup
         latex_content = self._dedup_full_doc_figures(latex_content)
-
-        # Step 6b: Final LaTeX-level figure validation
         latex_content = self._validate_figures_in_latex(latex_content, figure_output)
-
-        # Step 6b.5: Ensure every placed figure has a natural LLM-written reference.
         latex_content = await self._ensure_llm_figure_references(
             latex_content, figure_output, grounding
         )
         latex_content = self._precompile_static_layout_audit(latex_content)
 
-        # Step 6c: Resolve missing citations
         bibtex = await self._resolve_missing_citations(latex_content, bibtex)
 
-        # Step 6d: Citation coverage validation
         citation_report = self._validate_citation_coverage(latex_content, ideation, cite_keys)
         if citation_report.get("missing_must_cites"):
             self.log(f"Must-cite enforcement: {len(citation_report['missing_must_cites'])} "
@@ -458,19 +508,28 @@ class _WritingAgentMixin:
 
         self._log_citation_report(citation_report)
 
-        # Step 6d.5: Ensure full-paper literature coverage, then cleanup unused BibTeX entries.
         latex_content = self._ensure_minimum_citations(latex_content, ideation, cite_keys, min_refs=20)
         bibtex = await self._resolve_missing_citations(latex_content, bibtex)
         bibtex = self._cleanup_unused_bibtex(latex_content, bibtex)
 
-        # Step 6e: Global consistency check
         consistency_issues = _check_global_consistency(latex_content, abstract, sections)
         if consistency_issues:
             self.log(f"Consistency check: {len(consistency_issues)} issue(s) found")
             for issue in consistency_issues:
                 self.log(f"  - {issue}")
 
-        # Save outputs
+        return latex_content, bibtex, structure_issues, citation_report, consistency_issues, skeleton
+
+    async def _compile_and_save_paper(
+        self, latex_content: str, bibtex: str, skeleton: PaperSkeleton, structure_issues: list[str], consistency_issues: list[str], citation_report: dict, ctx: dict[str, Any]
+    ) -> dict[str, Any]:
+        template_format = ctx["template_format"]
+        grounding = ctx["grounding"]
+        paper_structure_plan = ctx.get("paper_structure_plan", {}) # Not returned by _generate_paper_plan? Ah, passed as arg.
+        # Wait, paper_structure_plan isn't passed in, I'll fix it below
+        ideation = ctx["ideation"]
+        paper_mode_str = ctx["paper_mode_str"]
+
         tex_path = self.workspace.write_text("drafts/paper.tex", latex_content)
         bib_content = self._sanitize_bibtex(bibtex)
         bib_path = self.workspace.write_text("drafts/references.bib", bib_content)
@@ -482,7 +541,6 @@ class _WritingAgentMixin:
         self.workspace.register_artifact("references_bib", bib_path, self.stage)
         self.workspace.register_artifact("paper_skeleton", skeleton_path, self.stage)
 
-        # Step 7: Try to compile PDF
         pdf_result = await self._compile_pdf(tex_path, template_format=template_format)
 
         result = {
@@ -490,7 +548,7 @@ class _WritingAgentMixin:
             "bib_path": str(bib_path),
             "paper_tex": latex_content,
             "grounding": grounding.to_output_dict(),
-            "paper_structure_plan": paper_structure_plan,
+            # "paper_structure_plan": paper_structure_plan,  # I'll pass it in next iteration.
             "paper_structure_issues": structure_issues,
             "consistency_issues": consistency_issues,
         }
@@ -528,6 +586,22 @@ class _WritingAgentMixin:
         self.log("Writing stage complete")
         return result
 
+    async def run(self, **inputs: Any) -> dict[str, Any]:
+        ctx = await self._setup_paper_context(**inputs)
+        title, abstract = await self._generate_frontmatter(ctx)
+        paper_structure_plan = await self._generate_paper_plan(ctx)
+        sections, placed_figures = await self._generate_all_sections(ctx, paper_structure_plan)
+        placed_figures = self._distribute_remaining_figures(sections, placed_figures, ctx)
+
+        latex_content, bibtex, structure_issues, citation_report, consistency_issues, skeleton = await self._refine_and_validate_latex(
+            title, abstract, sections, ctx, paper_structure_plan
+        )
+
+        result = await self._compile_and_save_paper(
+            latex_content, bibtex, skeleton, structure_issues, consistency_issues, citation_report, ctx
+        )
+        result["paper_structure_plan"] = paper_structure_plan
+        return result
 
     @staticmethod
     def _latex_without_figure_blocks(latex_content: str) -> str:
