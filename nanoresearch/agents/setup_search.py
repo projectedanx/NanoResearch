@@ -211,7 +211,7 @@ Return JSON:
             dest.mkdir(parents=True, exist_ok=True)
             self.log(f"Downloading model: {model_id}")
 
-            # BUG-20 fix: validate model_id format before passing to shell.
+            # Sanitize for safety: validate model_id format before passing to shell.
             # Only allow characters valid in HuggingFace/ModelScope IDs.
             _MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9_\-./]+$")
             if not _MODEL_ID_RE.match(model_id):
@@ -227,7 +227,7 @@ Return JSON:
             modelscope_id = await self._hf_to_modelscope_id(model_id)
             success = False
 
-            # BUG-20 fix: pass model_id/dest via environment variables
+            # Sanitize for safety: pass model_id/dest via environment variables
             # instead of embedding in f-string python code, preventing
             # shell/Python injection from untrusted LLM-generated IDs.
             if modelscope_id:
@@ -390,7 +390,7 @@ Return JSON:
 
             if url.startswith(("wget ", "curl ")):
                 try:
-                    # BUG-18 fix: sanitize LLM-generated download command.
+                    # Sanitize for safety: sanitize LLM-generated download command.
                     # Tokenize with shlex and reject anything that isn't a
                     # flag or an http(s)/ftp URL to block shell injection.
                     try:
