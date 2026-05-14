@@ -239,9 +239,9 @@ class _CodeRunnerMixin(_CodeRunnerHelpersMixin):
         previous_fixes: list[dict] | None = None,
         extra_context: str = "",
     ) -> list[str]:
-        """Parse traceback, fix each affected file with a targeted LLM call.
+        """Parse traceback, fix all affected files with a targeted LLM call.
 
-        Surgical approach: for each file in the traceback, send ONLY that file
+        Surgical approach: for all files in the traceback, send their context
         + the error to the LLM -> get a search-replace patch -> apply.
         Uses 4-layer patch matching and syntax validation with rollback.
 
@@ -312,15 +312,49 @@ class _CodeRunnerMixin(_CodeRunnerHelpersMixin):
                 all_files.append(str(f.relative_to(code_dir)).replace("\\", "/"))
         file_list = "\n".join(f"  {f}" for f in all_files)
 
-        # 4. Fix each affected file with a targeted LLM call
+        # 4. Fix ALL affected files with a targeted LLM call
         flag = "--quick-eval" if mode == "quick-eval" else "--dry-run"
         modified: list[str] = []
         code_gen_config = self.config.for_stage("code_gen")
 
+        # Build previous fix history to avoid repeating failed fixes
+        fix_history = ""
+        if previous_fixes:
+            fix_history = (
+                "\nPrevious fix attempts that did NOT resolve the problem:\n"
+                + "\n".join(
+                    (
+                        f"  Round {i+1}: "
+                        f"{fx.get('diagnosis', fx.get('error_msg', ''))[:200]}"
+                        + (
+                            f" | repeated={fx.get('repeat_count')}"
+                            if fx.get("repeat_count", 1) > 1
+                            else ""
+                        )
+                        + (
+                            f" | files={fx.get('fixed_files', [])}"
+                            if fx.get("fixed_files")
+                            else ""
+                        )
+                    )
+                    for i, fx in enumerate(previous_fixes)
+                )
+                + "Do NOT repeat the same fixes. Try a different approach.\n"
+            )
+
+        extra_context_text = (
+            f"Additional execution context:{extra_context}\n\n"
+            if extra_context.strip()
+            else ""
+        )
+
+        files_context_text = ""
+        affected_files_content = {}
         for target_file, error_line in affected:
             rel_path = str(target_file.relative_to(code_dir)).replace("\\", "/")
             try:
                 content = target_file.read_text(encoding="utf-8", errors="replace")
+                affected_files_content[rel_path] = content
             except OSError:
                 continue
 
@@ -336,74 +370,69 @@ class _CodeRunnerMixin(_CodeRunnerHelpersMixin):
             else:
                 context_snippet = content[:2000]
 
-            # Build previous fix history to avoid repeating failed fixes
-            fix_history = ""
-            if previous_fixes:
-                fix_history = (
-                    "\n\nPrevious fix attempts that did NOT resolve the problem:\n"
-                    + "\n".join(
-                        (
-                            f"  Round {i+1}: "
-                            f"{fx.get('diagnosis', fx.get('error_msg', ''))[:200]}"
-                            + (
-                                f" | repeated={fx.get('repeat_count')}"
-                                if fx.get("repeat_count", 1) > 1
-                                else ""
-                            )
-                            + (
-                                f" | files={fx.get('fixed_files', [])}"
-                                if fx.get("fixed_files")
-                                else ""
-                            )
-                        )
-                        for i, fx in enumerate(previous_fixes)
-                    )
-                    + "\nDo NOT repeat the same fixes. Try a different approach.\n"
-                )
-
-            extra_context_text = (
-                f"Additional execution context:\n{extra_context}\n\n"
-                if extra_context.strip()
-                else ""
-            )
-            fix_prompt = (
-                f"`python main.py {flag}` failed.\n\n"
-                f"Error: {error_msg}\n\n"
-                f"Full traceback (last 40 lines):\n```\n"
-                f"{chr(10).join(error_lines[-40:])}\n```\n\n"
-                f"{extra_context_text}"
-                f"File: {rel_path} (error around line {error_line}):\n```python\n"
+            files_context_text += (
+                f"\n\nFile: {rel_path} (error around line {error_line}):\n```python\n"
                 f"{context_snippet}\n```\n\n"
-                f"Full file ({len(lines)} lines):\n```python\n{content[:4000]}\n```\n\n"
-                f"== Config / Data Files (for reference) ==\n{config_context}\n\n"
-                f"== Project Files ==\n{file_list}\n"
-                f"{fix_history}\n"
-                f"Output a JSON array of search-replace edits:\n"
-                f'[{{"old": "exact text to find", "new": "replacement text"}}]\n\n'
-                f"Rules:\n"
-                f"- 'old' must be an EXACT substring of the file (including indentation)\n"
-                f"- Multiple edits are fine — fix ALL issues in this file\n"
-                f"- If config is YAML, use yaml.safe_load(), NOT json.load()\n"
-                f"- Ensure imports match actual module structure\n"
-                f"- Output ONLY valid JSON array, no markdown"
+                f"Full file ({len(lines)} lines):\n```python\n{content[:4000]}\n```"
             )
 
-            try:
-                raw = await self._dispatcher.generate(
-                    code_gen_config,
-                    f"You are a Python debugging expert. Fix the bug in {rel_path} using precise search-replace edits.",
-                    fix_prompt,
-                )
-                edits = self._parse_llm_json_payload(raw)
-                if not isinstance(edits, list):
-                    edits = [edits]
+        if not affected_files_content:
+            return []
 
-                # Save backup for syntax rollback
+        affected_paths = list(affected_files_content.keys())
+
+        fix_prompt = (
+            f"`python main.py {flag}` failed.\n\n"
+            f"Error: {error_msg}\n\n"
+            f"Full traceback (last 40 lines):\n```\n"
+            f"{chr(10).join(error_lines[-40:])}\n```\n\n"
+            f"{extra_context_text}"
+            f"== Affected Files Context =={files_context_text}\n\n"
+            f"== Config / Data Files (for reference) ==\n{config_context}\n\n"
+            f"== Project Files ==\n{file_list}\n"
+            f"{fix_history}\n"
+            f"Output a JSON array of search-replace edits for ALL affected files.\n"
+            f'[{{"file": "path/to/file.py", "old": "exact text to find", "new": "replacement text"}}]\n'
+            f"Rules:\n"
+            f"- 'file' MUST be one of: {', '.join(affected_paths)}\n"
+            f"- 'old' must be an EXACT substring of the file (including indentation)\n"
+            f"- Multiple edits are fine — fix ALL issues across all files\n"
+            f"- If config is YAML, use yaml.safe_load(), NOT json.load()\n"
+            f"- Ensure imports match actual module structure\n"
+            f"- Output ONLY valid JSON array, no markdown\n"
+        )
+
+        try:
+            raw = await self._dispatcher.generate(
+                code_gen_config,
+                f"You are a Python debugging expert. Fix the bug in {', '.join(affected_paths)} using precise search-replace edits.",
+                fix_prompt,
+            )
+            edits = self._parse_llm_json_payload(raw)
+            if not isinstance(edits, list):
+                edits = [edits]
+
+            # Group edits by file
+            edits_by_file = {}
+            for edit in edits:
+                if not isinstance(edit, dict):
+                    continue
+                file_path = edit.get("file")
+                # Fallback to single affected file if not specified
+                if not file_path and len(affected_paths) == 1:
+                    file_path = affected_paths[0]
+
+                if file_path in affected_files_content:
+                    if file_path not in edits_by_file:
+                        edits_by_file[file_path] = []
+                    edits_by_file[file_path].append(edit)
+
+            for rel_path, file_edits in edits_by_file.items():
+                target_file = code_dir / rel_path
+                content = affected_files_content[rel_path]
                 backup_content = content
                 applied = 0
-                for edit in edits:
-                    if not isinstance(edit, dict):
-                        continue
+                for edit in file_edits:
                     old = edit.get("old", "")
                     new = edit.get("new", "")
                     if not old:
@@ -429,18 +458,21 @@ class _CodeRunnerMixin(_CodeRunnerHelpersMixin):
                 else:
                     self.log(f"  No edits matched in {rel_path}")
 
-            except json.JSONDecodeError:
-                # Fallback: LLM might return the full fixed file
-                if raw and len(raw) > 50:
-                    target_file.write_text(raw, encoding="utf-8")
-                    if target_file.suffix == ".py" and not self._check_syntax(target_file):
-                        self.log(f"  Fallback rewrite has syntax error in {rel_path}, rolling back")
-                        target_file.write_text(content, encoding="utf-8")
-                    else:
-                        modified.append(rel_path)
-                        self.log(f"  Rewrote {rel_path} (fallback)")
-            except Exception as e:
-                self.log(f"  Fix failed for {rel_path}: {e}")
+        except json.JSONDecodeError:
+            # Fallback: LLM might return the full fixed file if there's only 1 affected file
+            if len(affected_paths) == 1 and raw and len(raw) > 50:
+                rel_path = affected_paths[0]
+                target_file = code_dir / rel_path
+                content = affected_files_content[rel_path]
+                target_file.write_text(raw, encoding="utf-8")
+                if target_file.suffix == ".py" and not self._check_syntax(target_file):
+                    self.log(f"  Fallback rewrite has syntax error in {rel_path}, rolling back")
+                    target_file.write_text(content, encoding="utf-8")
+                else:
+                    modified.append(rel_path)
+                    self.log(f"  Rewrote {rel_path} (fallback)")
+        except Exception as e:
+            self.log(f"  Fix failed: {e}")
 
         if modified:
             self.log(f"Batch fix: modified {len(modified)} files")
