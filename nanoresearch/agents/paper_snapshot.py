@@ -60,11 +60,20 @@ class PaperSnapshotManager:
         zp = self.backup_dir / f"{snapshot_id}.zip"
         if not zp.exists():
             return False
+        ws_path = self.ws.path.resolve()
         with zipfile.ZipFile(zp, "r") as zf:
-            for name in zf.namelist():
-                target = self.ws.path / name
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                target = (ws_path / info.filename).resolve()
+                if not target.is_relative_to(ws_path):
+                    logger.warning(
+                        "Security: skipping zip member %r (outside workspace)",
+                        info.filename,
+                    )
+                    continue
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(zf.read(name))
+                target.write_bytes(zf.read(info.filename))
         return True
 
     def rollback_latest(self) -> str | None:

@@ -78,8 +78,20 @@ class CodeSnapshotManager:
                 fp.unlink()
 
         # Extract
+        code_dir = self.code_dir.resolve()
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extractall(self.code_dir)
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                target = (code_dir / info.filename).resolve()
+                if not target.is_relative_to(code_dir):
+                    logger.warning(
+                        "Security: skipping zip member %r (outside code_dir)",
+                        info.filename,
+                    )
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zf.read(info.filename))
         return True
 
     def rollback_latest(self) -> str | None:
