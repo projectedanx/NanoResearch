@@ -312,7 +312,7 @@ Rules:
             if not cmd.startswith(("wget ", "curl ", "gdown ", "python ")):
                 self.log(f"Skipping unsafe command: {cmd[:60]}")
                 continue
-            # BUG-18 fix (second site): sanitize via shlex tokenization
+            # Sanitize via shlex tokenization for safety
             try:
                 cmd_parts = shlex.split(cmd)
             except ValueError:
