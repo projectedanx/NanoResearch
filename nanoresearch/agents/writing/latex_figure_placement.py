@@ -39,23 +39,24 @@ class _LaTeXFigurePlacementMixin:
             return text
 
         if len(end_doc_positions) == 1:
-            # Check if bibliography is before \end{document}
+            # Check if bibliography is before \end{document} AND it's at the end
             end_pos = end_doc_positions[0]
+            is_at_end = text[end_pos + len(r'\end{document}'):].strip() == ""
             has_bib_before = (
-                re.search(r'\\bibliography\{', text[:end_pos])
+                re.search(r'\\bibliography\s*\{', text[:end_pos])
                 or re.search(r'\\begin\{thebibliography\}', text[:end_pos])
             )
-            if has_bib_before:
-                return text  # All good -- single \end{document} with bib before it
+            if is_at_end and has_bib_before:
+                return text  # All good -- single \end{document} at end with bib before it
 
-        # ---- Need to fix: multiple \end{document} or bib after it ----
+        # ---- Need to fix: multiple \end{document}, bib after it, or garbage after it ----
 
         # 1. Extract bibliography commands (preserve style & file name)
         bib_style_m = re.search(
-            r'\\bibliographystyle\{([^}]+)\}', text,
+            r'\\bibliographystyle\s*\{([^}]+)\}', text,
         )
         bib_file_m = re.search(
-            r'\\bibliography\{([^}]+)\}', text,
+            r'\\bibliography\s*\{([^}]+)\}', text,
         )
         bib_style = bib_style_m.group(1) if bib_style_m else "plainnat"
         bib_file = bib_file_m.group(1) if bib_file_m else "references"
@@ -69,8 +70,8 @@ class _LaTeXFigurePlacementMixin:
 
         # 2. Remove ALL \end{document} and bibliography commands from body
         text = re.sub(r'\\end\{document\}\s*', '', text)
-        text = re.sub(r'\\bibliographystyle\{[^}]*\}\s*', '', text)
-        text = re.sub(r'\\bibliography\{[^}]*\}\s*', '', text)
+        text = re.sub(r'\\bibliographystyle\s*\{[^}]*\}\s*', '', text)
+        text = re.sub(r'\\bibliography\s*\{[^}]*\}\s*', '', text)
         if inline_bib:
             text = text.replace(inline_bib, '')
 
