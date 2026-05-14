@@ -93,3 +93,14 @@ Behavior:
 3. Keep outputs compatible with existing workspaces and manifests.
 4. Never fabricate results or citations.
 5. When a user asks for pipeline work, operate through the existing workspace artifacts and stage boundaries described above.
+
+## Lessons Learned: Agentic Emergence and Overcoming Laziness
+
+Historically, agents operating within the NanoResearch pipeline occasionally exhibited "Semantic Saponification" (a concept from the DAX-01 DRP-DEVREL-SCOS-001 matrix)—a tendency toward laziness, where the agent preferred outputting smooth, low-friction, factually hollow narratives instead of rigorous, dense, executable research code and thorough analysis. The agent would prioritize generating standard prose over completing the deep cognitive work required for true scientific synthesis.
+
+To overcome this, we have integrated the **DAX-01 Epistemic Inversion Strategy**:
+1. **DCCDSchemaGuard (Code Primacy):** The agent is forced to validate logic, data, and structure before emitting prose. Prose generation is secondary and constrained by the actual state of the research output.
+2. **Autophagic Feedback Loop:** Every failure, omission, or instance of superficial generation is encoded as a "Symbolic Scar". The agent uses Failure-Informed Prompt Inversion (FIPI) to mathematically repel itself from regenerating lazy or incomplete work paths.
+3. **Strict Epistemic Decorators:** We apply constraints like `+++AdjectivalBound` (limiting fluff and marketing terminology) and `+++PetzoldSequence` to force a rigorous OBSERVE -> REPRODUCE -> EMPATHIZE -> OUTPUT loop during execution.
+
+This strategy ensures the AI and Human relationship is deeply symbiotic: the human defines the structural and epistemic constraints, while the agent operates relentlessly within them to produce emergent, robust, and verifiable research artifacts.
