@@ -181,7 +181,13 @@ Return JSON:
         3. Fall back to HuggingFace
         """
         downloaded = []
+        downloaded.extend(await self._download_pretrained_models(search_plan, models_dir))
+        downloaded.extend(await self._download_datasets(search_plan, data_dir))
+        return downloaded
 
+    async def _download_pretrained_models(self, search_plan: dict, models_dir: Path) -> list[dict]:
+        """Download pretrained models to global cache."""
+        downloaded = []
         # Download pretrained models
         for model_info in search_plan.get("pretrained_models", []):
             name = model_info.get("name", "unknown")
@@ -343,6 +349,11 @@ Return JSON:
                 "status": status,
             })
 
+        return downloaded
+
+    async def _download_datasets(self, search_plan: dict, data_dir: Path) -> list[dict]:
+        """Download datasets to global cache."""
+        downloaded = []
         # Download datasets
         for ds_info in search_plan.get("datasets", []):
             name = ds_info.get("name", "unknown")
@@ -473,6 +484,7 @@ Return JSON:
                     })
 
         return downloaded
+
 
     # ------------------------------------------------------------------
     # GitHub dataset repo handling
