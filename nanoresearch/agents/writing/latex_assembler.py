@@ -471,7 +471,7 @@ class _LaTeXAssemblerMixin(
         text = re.sub(r'\s*Figure~?\?\?[^.]*\.', '.', text)
         text = re.sub(r'\s*Table~?\?\?[^.]*\.', '.', text)
 
-        # -- 2c. Fix \~{}\ref -> ~\ref --
+        # -- 2c. Correct \~{}\ref -> ~\ref --
         text = re.sub(
             r'\\~\{\}(\\(?:ref|eqref|cite[tp]?|pageref)\{)',
             r'~\1',
@@ -549,7 +549,7 @@ class _LaTeXAssemblerMixin(
 
         text = re.sub(r'\n(?:\\FloatBarrier\s*)?\\section\{Method\}', '\n\\FloatBarrier\n\\section{Method}', text)
 
-        # -- 4. Auto-fix table overflow --
+        # -- 4. Handle table overflow --
         text = cls._fix_table_overflow(text)
 
         # -- 5. Enforce contribution limit --
@@ -579,7 +579,7 @@ class _LaTeXAssemblerMixin(
         text = re.sub(r'\n\\clearpage\n\s*(?=\\section\*?\{Conclusion\})', '\n\n', text)
         text = re.sub(r'(?:\n\\clearpage\s*){2,}', r'\n\\clearpage\n\n', text)
 
-        # -- 9. Fix stray \end{document} inside body --
+        # -- 9. Reposition stray \end{document} inside body --
         text = cls._fix_end_document_placement(text)
 
         # -- 10. Relocate figures stranded after bibliography --
