@@ -1,6 +1,10 @@
 <a id="top"></a>
 
 <div align="center">
+## DAX-01 Agentic Integration
+
+NanoResearch has integrated the **DAX-01 Epistemic Capsule Strategy** to combat "Semantic Saponification" and agent laziness. The agent utilizes an Epistemic Inversion driven by strict constraints (e.g., `+++DCCDSchemaGuard`, `+++PetzoldSequence`) to ensure rigorous execution, code primacy, and an Autophagic Feedback Loop that learns from "Symbolic Scars" to continually improve its research and coding outputs. See `agentic_emergence/strategy.md` for full details.
+
 
 <div style="margin: 20px 0;">
   <img src="imgs/logo.png" alt="NanoResearch Logo" width="500" style="border-radius: 20px;">
