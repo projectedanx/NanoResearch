@@ -269,16 +269,7 @@ class _LaTeXAssemblerMixin(
     # ---- LaTeX sanitization --------------------------------------------------
 
     @classmethod
-    def _sanitize_latex(cls, text: str) -> str:
-        """Fix common LLM output issues that break LaTeX compilation.
-
-        Applies, in order:
-        1. Unicode replacement (dashes, quotes)
-        2. Percent-sign escaping
-        3. Normalize float placement to flexible [htbp]/[tbp] (not [H])
-        4. Auto-fix table overflow (inject \\small / \\tabcolsep / @{})
-        5. Enforce max 3 contribution bullets in Introduction
-        """
+    def _strip_markdown_and_garbage(cls, text: str) -> str:
         # -- 0c. Truncate garbage before \documentclass --
         docclass_pos = text.find(r'\documentclass')
         if docclass_pos > 0:
@@ -288,6 +279,10 @@ class _LaTeXAssemblerMixin(
         text = re.sub(r'```(?:latex|tex)?\s*\n', '', text)
         text = re.sub(r'\n```[ \t]*(?:\n|$)', '\n', text)
 
+        return text
+
+    @classmethod
+    def _remove_llm_artifacts(cls, text: str) -> str:
         # -- 0. Remove LLM artifact text --
         _LLM_ARTIFACT_PATTERNS = [
             r'I (?:now )?have sufficient \w+ to write.*',
@@ -337,6 +332,10 @@ class _LaTeXAssemblerMixin(
         # -- 0b. Strip control characters (U+0000-U+001F except \n \r \t) --
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
 
+        return text
+
+    @classmethod
+    def _replace_unicode(cls, text: str) -> str:
         # -- 1. Unicode replacements --
         text = text.replace("\u2014", "---")  # em-dash
         text = text.replace("\u2013", "--")   # en-dash
@@ -383,6 +382,10 @@ class _LaTeXAssemblerMixin(
         for char, repl in _latex_unicode_replacements.items():
             text = text.replace(char, repl)
 
+        return text
+
+    @classmethod
+    def _escape_percent_signs(cls, text: str) -> str:
         # -- 2. Escape bare % after digits --
         lines = text.split("\n")
         fixed_lines = []
@@ -398,6 +401,10 @@ class _LaTeXAssemblerMixin(
                 fixed_lines.append(fixed_line)
         text = "\n".join(fixed_lines)
 
+        return text
+
+    @classmethod
+    def _escape_prose_special_chars(cls, text: str) -> str:
         # -- 2b. Escape prose-only special chars in lines / captions / titles --
         env_stack: list[str] = []
         sanitized_lines: list[str] = []
@@ -407,6 +414,10 @@ class _LaTeXAssemblerMixin(
         text = "\n".join(sanitized_lines)
 
 
+        return text
+
+    @classmethod
+    def _repair_inline_math(cls, text: str) -> str:
         # -- 2b.2. Repair inline math commands that an LLM emitted in prose
         # without surrounding $...$.  This targets commands such as \mathcal,
         # \mathbf, \mathbb, and \boldsymbol while avoiding citation/ref commands.
@@ -467,6 +478,10 @@ class _LaTeXAssemblerMixin(
             repaired_lines.append(line if in_math_env else _repair_inline_math_in_prose_line(line))
         text = "\n".join(repaired_lines)
 
+        return text
+
+    @classmethod
+    def _compact_equations(cls, text: str) -> str:
         # -- 2b.5. Remove unresolved figure/table placeholders from prose.
         text = re.sub(r'\s*Figure~?\?\?[^.]*\.', '.', text)
         text = re.sub(r'\s*Table~?\?\?[^.]*\.', '.', text)
@@ -519,6 +534,10 @@ class _LaTeXAssemblerMixin(
             text,
             flags=re.IGNORECASE,
         )
+        return text
+
+    @classmethod
+    def _normalize_figure_placement(cls, text: str) -> str:
         # -- 3. Normalize figure placement --
         text = re.sub(
             r'\\begin\{figure\}\s*\[[Hh]!?\]',
@@ -549,6 +568,10 @@ class _LaTeXAssemblerMixin(
 
         text = re.sub(r'\n(?:\\FloatBarrier\s*)?\\section\{Method\}', '\n\\FloatBarrier\n\\section{Method}', text)
 
+        return text
+
+    @classmethod
+    def _apply_misc_replacements(cls, text: str) -> str:
         # -- 4. Handle table overflow --
         text = cls._fix_table_overflow(text)
 
@@ -752,9 +775,17 @@ class _LaTeXAssemblerMixin(
         text = text.replace(r'\mathcal{O}(n\textbackslash{},d\textbackslash{},T_{\mathrm{lr}})', r'\mathcal{O}(n d T_{\mathrm{lr}})')
         text = text.replace(r'\mathcal{O}(M\textbackslash{},\bar{h})', r'\mathcal{O}(M\bar{h})')
 
+        return text
+
+    @classmethod
+    def _split_overlong_equations(cls, text: str) -> str:
         # -- 15. Split common overlong display equations. This catches long
         # optimization and Pareto-set equations that otherwise overflow narrow
         # conference columns after LLM rewriting.
+        return text
+
+    @classmethod
+    def _replace_equations_by_label(cls, text: str) -> str:
         def _replace_equation_by_label(tex: str, label: str, replacement: str) -> str:
             pattern = (
                 r'\\begin\{equation\}.*?'
@@ -849,6 +880,10 @@ p_i=p_{\theta}(y=1\mid\mathbf{x}_i,\mathbf{m}).
 \end{equation}"""
         text = _replace_equation_by_label(text, 'eq:final_training_objective', final_training_objective_replacement)
 
+        return text
+
+    @classmethod
+    def _humanize_identifiers(cls, text: str) -> str:
         def _humanize_identifier(raw: str) -> str:
             raw = raw.replace(r'\_', '_').strip('_')
             words = [w for w in raw.split('_') if w]
@@ -880,6 +915,10 @@ p_i=p_{\theta}(y=1\mid\mathbf{x}_i,\mathbf{m}).
         text = re.sub(r'\b0/\d+\s+closest disease studies use', 'none of the closest disease studies use', text)
         text = re.sub(r'\b0/\d+\s+report', 'no surveyed papers report', text)
 
+        return text
+
+    @classmethod
+    def _apply_final_paper_cleanup(cls, text: str) -> str:
         # Keep result floats inside the experimental narrative. Without a
         # barrier, LaTeX can defer the final result figure past Conclusion or
         # even after References, which reads as a misplaced orphan figure.
@@ -953,4 +992,30 @@ p_i=p_{\theta}(y=1\mid\mathbf{x}_i,\mathbf{m}).
         text = re.sub(r'(?<!\?)\b([Ww])hether ([^.?!]{20,180})\?', lambda m: m.group(1) + 'hether ' + m.group(2) + '.', text)
         text = re.sub(r'\${2,}', '$', text)
 
+        return text
+
+    @classmethod
+    def _sanitize_latex(cls, text: str) -> str:
+        """Fix common LLM output issues that break LaTeX compilation.
+
+        Applies, in order:
+        1. Unicode replacement (dashes, quotes)
+        2. Percent-sign escaping
+        3. Normalize float placement to flexible [htbp]/[tbp] (not [H])
+        4. Auto-fix table overflow (inject \\small / \\tabcolsep / @{})
+        5. Enforce max 3 contribution bullets in Introduction
+        """
+        text = cls._strip_markdown_and_garbage(text)
+        text = cls._remove_llm_artifacts(text)
+        text = cls._replace_unicode(text)
+        text = cls._escape_percent_signs(text)
+        text = cls._escape_prose_special_chars(text)
+        text = cls._repair_inline_math(text)
+        text = cls._compact_equations(text)
+        text = cls._normalize_figure_placement(text)
+        text = cls._apply_misc_replacements(text)
+        text = cls._split_overlong_equations(text)
+        text = cls._replace_equations_by_label(text)
+        text = cls._humanize_identifiers(text)
+        text = cls._apply_final_paper_cleanup(text)
         return text
