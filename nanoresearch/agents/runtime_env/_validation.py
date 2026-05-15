@@ -1,4 +1,5 @@
 """Runtime validation and repair mixin."""
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +59,9 @@ class _ValidationMixin:
         return str(probe.get("status") or "").strip()
 
     @classmethod
-    def _validation_requires_venv_rebuild(cls, validation: dict[str, Any] | None) -> bool:
+    def _validation_requires_venv_rebuild(
+        cls, validation: dict[str, Any] | None
+    ) -> bool:
         if not isinstance(validation, dict):
             return False
         return (
@@ -78,7 +81,9 @@ class _ValidationMixin:
         for failure in import_probe.get("failures", []) or []:
             if not isinstance(failure, dict):
                 continue
-            package_name = _canonicalize_dependency_name(str(failure.get("package") or ""))
+            package_name = _canonicalize_dependency_name(
+                str(failure.get("package") or "")
+            )
             if package_name and package_name not in packages:
                 packages.append(package_name)
         return packages
@@ -101,7 +106,9 @@ class _ValidationMixin:
                 continue
             if candidate.startswith(("-r ", "--requirement ", "-c ", "--constraint ")):
                 continue
-            if candidate.startswith(("-f ", "--find-links ", "--index-url ", "--extra-index-url ")):
+            if candidate.startswith(
+                ("-f ", "--find-links ", "--index-url ", "--extra-index-url ")
+            ):
                 continue
             if candidate.startswith("--"):
                 continue
@@ -141,7 +148,11 @@ class _ValidationMixin:
             specs = cls._extract_requirement_dependency_specs(manifest_file)
         elif install_plan.source in {"environment.yml", "environment.yaml"}:
             environment_file = cls._find_environment_file(code_dir)
-            specs = cls._extract_pip_dependencies(environment_file) if environment_file is not None else []
+            specs = (
+                cls._extract_pip_dependencies(environment_file)
+                if environment_file is not None
+                else []
+            )
         else:
             return {}
 
@@ -185,7 +196,9 @@ class _ValidationMixin:
             if recreate_result.get("status") == "applied":
                 current_python = str(recreate_result.get("python") or current_python)
                 recreated = True
-                current_install_info = await self.install_requirements(current_python, code_dir)
+                current_install_info = await self.install_requirements(
+                    current_python, code_dir
+                )
                 repair_actions.append(
                     {
                         "kind": "reinstall_manifest",
@@ -200,7 +213,9 @@ class _ValidationMixin:
 
         failed_imports = self._failed_import_packages(current_validation)
         if failed_imports:
-            spec_index = self._repairable_dependency_spec_index(code_dir, execution_policy)
+            spec_index = self._repairable_dependency_spec_index(
+                code_dir, execution_policy
+            )
             repair_specs: list[str] = []
             unresolved: list[str] = []
             for package_name in failed_imports:
@@ -278,7 +293,11 @@ class _ValidationMixin:
         install_plan = execution_policy.install_plan
         if install_plan is None:
             return [], "no_install_plan"
-        if install_plan.source not in {"requirements.txt", "environment.yml", "environment.yaml"}:
+        if install_plan.source not in {
+            "requirements.txt",
+            "environment.yml",
+            "environment.yaml",
+        }:
             return [], "install_source_not_probe_safe"
 
         targets: list[dict[str, str]] = []
@@ -294,16 +313,12 @@ class _ValidationMixin:
             return [], "no_probeable_dependencies"
         return targets, ""
 
-    async def validate_runtime(
+    async def _run_python_smoke_probe(
         self,
+        loop: asyncio.AbstractEventLoop,
         python: str,
         code_dir: Path,
-        *,
-        execution_policy: ExperimentExecutionPolicy | None = None,
     ) -> dict[str, Any]:
-        """Validate that the selected runtime can execute and import key dependencies."""
-        loop = asyncio.get_running_loop()
-
         try:
             smoke_result = await loop.run_in_executor(
                 None,
@@ -326,12 +341,7 @@ class _ValidationMixin:
             self._log(f"Runtime smoke probe failed to start for {python}: {exc}")
             return {
                 "status": "failed",
-                "python_smoke": {
-                    "status": "failed",
-                    "error": str(exc),
-                },
-                "pip_probe": {"status": "skipped"},
-                "import_probe": {"status": "skipped"},
+                "error": str(exc),
             }
 
         smoke_stdout = (smoke_result.stdout or "").strip()
@@ -354,13 +364,14 @@ class _ValidationMixin:
             self._log(
                 f"Runtime validation failed for {python}: rc={smoke_result.returncode}, stderr={smoke_stderr[:200]}"
             )
-            return {
-                "status": "failed",
-                "python_smoke": python_smoke,
-                "pip_probe": {"status": "skipped"},
-                "import_probe": {"status": "skipped"},
-            }
+        return python_smoke
 
+    async def _run_pip_probe(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        python: str,
+        code_dir: Path,
+    ) -> dict[str, Any]:
         try:
             pip_result = await loop.run_in_executor(
                 None,
@@ -373,21 +384,28 @@ class _ValidationMixin:
                 ),
             )
         except Exception as exc:
-            pip_probe = {
+            return {
                 "status": "failed",
                 "error": str(exc),
             }
         else:
-            pip_probe = {
+            return {
                 "status": "passed" if pip_result.returncode == 0 else "failed",
                 "returncode": pip_result.returncode,
                 "version": (pip_result.stdout or "").strip()[:200],
                 "stderr": (pip_result.stderr or "").strip()[:300],
             }
 
-        probe_targets, skipped_reason = self._select_import_probe_targets(execution_policy)
+    async def _run_import_probe(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        python: str,
+        code_dir: Path,
+        probe_targets: list[dict[str, str]],
+        skipped_reason: str,
+    ) -> dict[str, Any]:
         if not probe_targets:
-            import_probe = {
+            return {
                 "status": "skipped",
                 "targets": [],
                 "failures": [],
@@ -428,7 +446,7 @@ class _ValidationMixin:
                     ),
                 )
             except Exception as exc:
-                import_probe = {
+                return {
                     "status": "failed",
                     "targets": list(probe_targets),
                     "failures": [{"package": "", "module": "", "error": str(exc)}],
@@ -441,10 +459,18 @@ class _ValidationMixin:
                         parsed_payload = json.loads(import_stdout.splitlines()[-1])
                     except json.JSONDecodeError:
                         parsed_payload = {}
-                    results_value = parsed_payload.get("results") if isinstance(parsed_payload, dict) else None
+                    results_value = (
+                        parsed_payload.get("results")
+                        if isinstance(parsed_payload, dict)
+                        else None
+                    )
                     if isinstance(results_value, list):
-                        parsed_results = [item for item in results_value if isinstance(item, dict)]
-                failures = [item for item in parsed_results if item.get("status") != "passed"]
+                        parsed_results = [
+                            item for item in results_value if isinstance(item, dict)
+                        ]
+                failures = [
+                    item for item in parsed_results if item.get("status") != "passed"
+                ]
                 if import_result.returncode != 0 and not failures:
                     failures = [
                         {
@@ -453,13 +479,45 @@ class _ValidationMixin:
                             "error": (import_result.stderr or "").strip()[:300],
                         }
                     ]
-                import_probe = {
-                    "status": "passed" if not failures and import_result.returncode == 0 else "partial",
+                return {
+                    "status": (
+                        "passed"
+                        if not failures and import_result.returncode == 0
+                        else "partial"
+                    ),
                     "targets": list(probe_targets),
                     "results": parsed_results,
                     "failures": failures,
                     "stderr": (import_result.stderr or "").strip()[:300],
                 }
+
+    async def validate_runtime(
+        self,
+        python: str,
+        code_dir: Path,
+        *,
+        execution_policy: ExperimentExecutionPolicy | None = None,
+    ) -> dict[str, Any]:
+        """Validate that the selected runtime can execute and import key dependencies."""
+        loop = asyncio.get_running_loop()
+
+        python_smoke = await self._run_python_smoke_probe(loop, python, code_dir)
+        if python_smoke.get("status") == "failed":
+            return {
+                "status": "failed",
+                "python_smoke": python_smoke,
+                "pip_probe": {"status": "skipped"},
+                "import_probe": {"status": "skipped"},
+            }
+
+        pip_probe = await self._run_pip_probe(loop, python, code_dir)
+
+        probe_targets, skipped_reason = self._select_import_probe_targets(
+            execution_policy
+        )
+        import_probe = await self._run_import_probe(
+            loop, python, code_dir, probe_targets, skipped_reason
+        )
 
         overall_status = "ready"
         if pip_probe.get("status") != "passed":
@@ -492,9 +550,15 @@ class _ValidationMixin:
             install_plan=self._select_install_plan(code_dir),
             manifest_source=manifest_snapshot.manifest_source,
             manifest_path=manifest_snapshot.manifest_path,
-            declared_dependencies=frozenset(self._collect_declared_dependency_names(code_dir)),
+            declared_dependencies=frozenset(
+                self._collect_declared_dependency_names(code_dir)
+            ),
             runtime_auto_install_enabled=bool(self.config.runtime_auto_install_enabled),
             runtime_auto_install_allowlist=frozenset(allowlist),
-            max_runtime_auto_installs=max(0, int(self.config.runtime_auto_install_max_packages)),
-            max_nltk_downloads=max(0, int(self.config.runtime_auto_install_max_nltk_downloads)),
+            max_runtime_auto_installs=max(
+                0, int(self.config.runtime_auto_install_max_packages)
+            ),
+            max_nltk_downloads=max(
+                0, int(self.config.runtime_auto_install_max_nltk_downloads)
+            ),
         )
